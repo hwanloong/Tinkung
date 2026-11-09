@@ -13,11 +13,13 @@ class _FakeException implements Exception {
 void main() {
   group('翻译成人话', () {
     test('ECONNABORTED 会给出原因和处置建议', () {
-      final String msg = NetError.describe(_FakeException(
-        'ClientException with SocketException: Software caused connection abort '
-        '(OS Error: Software caused connection abort, errno = 103), '
-        'uri=https://api.deepseek.com/chat/completions',
-      ));
+      final String msg = NetError.describe(
+        _FakeException(
+          'ClientException with SocketException: Software caused connection abort '
+          '(OS Error: Software caused connection abort, errno = 103), '
+          'uri=https://api.deepseek.com/chat/completions',
+        ),
+      );
       expect(msg, contains('ECONNABORTED'));
       // 必须说清「可能是什么原因」和「该怎么办」，只报错名等于没报
       expect(msg, contains('WiFi'));
@@ -26,15 +28,21 @@ void main() {
 
     test('常见错误各有对应说明', () {
       expect(
-        NetError.describe(_FakeException('SocketException: Connection reset by peer')),
+        NetError.describe(
+          _FakeException('SocketException: Connection reset by peer'),
+        ),
         contains('ECONNRESET'),
       );
       expect(
-        NetError.describe(_FakeException('SocketException: Failed host lookup: nope.invalid')),
+        NetError.describe(
+          _FakeException('SocketException: Failed host lookup: nope.invalid'),
+        ),
         contains('域名解析失败'),
       );
       expect(
-        NetError.describe(_FakeException('SocketException: Network is unreachable')),
+        NetError.describe(
+          _FakeException('SocketException: Network is unreachable'),
+        ),
         contains('网络不可达'),
       );
       expect(

@@ -41,21 +41,21 @@ class CustomRule {
   final DateTime createdAt;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'id': id,
-        'when': when_,
-        'then': then_,
-        'enabled': enabled,
-        'createdAt': createdAt.toIso8601String(),
-      };
+    'id': id,
+    'when': when_,
+    'then': then_,
+    'enabled': enabled,
+    'createdAt': createdAt.toIso8601String(),
+  };
 
   static CustomRule fromJson(Map<String, dynamic> j) => CustomRule(
-        id: j['id']?.toString() ?? '',
-        when_: j['when']?.toString() ?? '',
-        then_: j['then']?.toString() ?? '',
-        enabled: j['enabled'] != false,
-        createdAt:
-            DateTime.tryParse(j['createdAt']?.toString() ?? '') ?? DateTime.now(),
-      );
+    id: j['id']?.toString() ?? '',
+    when_: j['when']?.toString() ?? '',
+    then_: j['then']?.toString() ?? '',
+    enabled: j['enabled'] != false,
+    createdAt:
+        DateTime.tryParse(j['createdAt']?.toString() ?? '') ?? DateTime.now(),
+  );
 }
 
 /// 规则的存储与注入
@@ -77,9 +77,7 @@ class RuleStore extends ChangeNotifier {
   static RuleStore get instance {
     final RuleStore? s = _instance;
     if (s == null) {
-      throw StateError(
-        'RuleStore 还没初始化。应该在 main() 里调用 RuleStore.configure()。',
-      );
+      throw StateError('RuleStore 还没初始化。应该在 main() 里调用 RuleStore.configure()。');
     }
     return s;
   }
@@ -158,8 +156,9 @@ class RuleStore extends ChangeNotifier {
   /// **措辞上刻意强调"这是用户明确设定的规则"**：模型对系统提示词里的
   /// 自然语言指令执行力有限，明确标注来源能明显提高遵守率。
   String toPromptSection() {
-    final List<CustomRule> on =
-        rules.where((CustomRule r) => r.enabled).toList();
+    final List<CustomRule> on = rules
+        .where((CustomRule r) => r.enabled)
+        .toList();
     if (on.isEmpty) return '';
 
     final StringBuffer sb = StringBuffer();

@@ -84,7 +84,8 @@ class CustomFont {
     } catch (e) {
       // .ttc 是"字体集合"（一个文件装多个字重），Flutter 对它的支持不确定。
       // 这里把原文带出来，用户才知道下一步该干什么（先抽成单字体）。
-      _error = '加载失败：$e\n'
+      _error =
+          '加载失败：$e\n'
           '如果这是 .ttc 集合文件，先用 tools/extract_ttc.dart 抽成单个 .ttf';
       return _error;
     }

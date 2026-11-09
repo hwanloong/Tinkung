@@ -90,18 +90,14 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     if (existing == null) {
       // 全空的新笔记不落盘 —— 避免"点进来又退出"留下一堆空笔记
       if (_title.text.trim().isEmpty && _body.text.trim().isEmpty) return;
-      widget.store
-          .create(
-            title: _title.text,
-            body: _body.text,
-            tags: tagList,
-          )
+      widget.store.create(title: _title.text, body: _body.text, tags: tagList)
         ..isMarkdown = _isMarkdown
         ..folderId = _folderId;
       widget.store.saveQuietly();
     } else {
-      existing.title =
-          _title.text.trim().isEmpty ? existing.title : _title.text.trim();
+      existing.title = _title.text.trim().isEmpty
+          ? existing.title
+          : _title.text.trim();
       existing.body = _body.text;
       existing.tags = tagList;
       existing.isMarkdown = _isMarkdown;
@@ -126,7 +122,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       canPop: true,
       onPopInvokedWithResult: (bool didPop, Object? _) => _save(),
       child: Scaffold(
-        backgroundColor: s.isDark ? AppColors.darkBg : AppColors.lightBg,
+        backgroundColor: s.pageBg,
         body: Column(
           children: <Widget>[
             _header(s),
@@ -230,17 +226,14 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     return Container(
       padding: const EdgeInsets.all(3),
       decoration: ShapeDecoration(
-        color: s.isDark
-            ? Colors.white.withValues(alpha: 0.06)
-            : Colors.black.withValues(alpha: 0.04),
+        // 走主题的"凹陷槽"色：暖底上叠黑白会在暗色下发灰、
+        // 在亮色下发脏，chipBg 是同一个明度台阶上的中性色。
+        color: s.chipBg,
         shape: const StadiumBorder(),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          item('Markdown', true),
-          item('纯文本', false),
-        ],
+        children: <Widget>[item('Markdown', true), item('纯文本', false)],
       ),
     );
   }
@@ -283,29 +276,37 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         const SizedBox(height: 10),
         Divider(color: s.border, height: 1),
         const SizedBox(height: 10),
-        TextField(
-          controller: _body,
-          minLines: 12,
-          maxLines: null,
-          keyboardType: TextInputType.multiline,
-          style: bodyStyle,
-          decoration: InputDecoration(
-            isDense: true,
-            filled: false,
-            border: InputBorder.none,
-            enabledBorder: InputBorder.none,
-            focusedBorder: InputBorder.none,
-            contentPadding: EdgeInsets.zero,
-            hintText: _isMarkdown
-                ? '# 标题\n\n- 列表项\n\n```\n代码块\n```'
-                : '随手记点什么…',
-            hintStyle: AppFonts.code(size: 12.5, color: s.muted),
+        Container(
+          decoration: BoxDecoration(
+            color: s.codeBg,
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            border: Border.all(color: s.border),
+          ),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+          child: TextField(
+            controller: _body,
+            minLines: 12,
+            maxLines: null,
+            keyboardType: TextInputType.multiline,
+            style: bodyStyle,
+            decoration: InputDecoration(
+              isDense: true,
+              filled: false,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              contentPadding: EdgeInsets.zero,
+              hintText: _isMarkdown
+                  ? '# 标题\n\n- 列表项\n\n```\n代码块\n```'
+                  : '随手记点什么',
+              hintStyle: AppFonts.code(size: 12.5, color: s.muted),
+            ),
           ),
         ),
         const SizedBox(height: 22),
         Text(
           '标签',
-          style: AppFonts.body(size: 12, color: s.muted, height: 1.3),
+          style: AppFonts.body(size: 12.5, color: s.muted, height: 1.3),
         ),
         const SizedBox(height: 6),
         TextField(
@@ -327,7 +328,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         // ---- 所属文件夹 ----
         Text(
           '文件夹',
-          style: AppFonts.body(size: 12, color: s.muted, height: 1.3),
+          style: AppFonts.body(size: 12.5, color: s.muted, height: 1.3),
         ),
         const SizedBox(height: 6),
         _folderRow(s),
@@ -365,7 +366,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
             Expanded(
               child: Text(
                 cur?.name ?? '未归类',
-                style: AppFonts.body(size: 13.5, color: s.text, height: 1.3),
+                style: AppFonts.body(size: 13, color: s.text, height: 1.3),
               ),
             ),
             Icon(Icons.unfold_more_rounded, size: 17, color: s.muted),
@@ -383,37 +384,36 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       builder: (BuildContext ctx) {
         final AppSurface s = AppSurface.of(ctx);
         return SafeArea(
-            top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                const SizedBox(height: 14),
-                Text(
-                  '放到哪个文件夹',
-                  style: AppFonts.body(
-                    size: 16,
-                    weight: FontWeight.w600,
-                    color: s.text,
-                    height: 1.2,
-                  ),
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const SizedBox(height: 14),
+              Text(
+                '放到哪个文件夹',
+                style: AppFonts.body(
+                  size: 16,
+                  weight: FontWeight.w600,
+                  color: s.text,
+                  height: 1.2,
                 ),
-                const SizedBox(height: 10),
-                _folderOption(ctx, s, null, '未归类', _folderId == null),
-                for (final NoteFolder f in folders)
-                  _folderOption(ctx, s, f.id, f.name, _folderId == f.id),
-                if (folders.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
-                    child: Text(
-                      '还没有文件夹。回笔记页点右上角的文件夹图标可以新建。',
-                      style:
-                          AppFonts.body(size: 12, color: s.muted, height: 1.5),
-                    ),
-                  )
-                else
-                  const SizedBox(height: 12),
-              ],
-            ),
+              ),
+              const SizedBox(height: 10),
+              _folderOption(ctx, s, null, '未归类', _folderId == null),
+              for (final NoteFolder f in folders)
+                _folderOption(ctx, s, f.id, f.name, _folderId == f.id),
+              if (folders.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
+                  child: Text(
+                    '还没有文件夹。回笔记页点右上角的文件夹图标可以新建。',
+                    style: AppFonts.body(size: 12.5, color: s.muted, height: 1.5),
+                  ),
+                )
+              else
+                const SizedBox(height: 12),
+            ],
+          ),
         );
       },
     );
@@ -458,8 +458,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
               ),
             ),
             if (active)
-              Icon(Icons.check_rounded,
-                  size: 18, color: AppColors.accent),
+              Icon(Icons.check_rounded, size: 18, color: AppColors.accent),
           ],
         ),
       ),
@@ -475,7 +474,11 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       builder: (BuildContext ctx) => AlertDialog(
         title: Text(
           '删除笔记',
-          style: AppFonts.body(size: 16.5, weight: FontWeight.w600, height: 1.3),
+          style: AppFonts.body(
+            size: 16.5,
+            weight: FontWeight.w600,
+            height: 1.3,
+          ),
         ),
         content: Text(
           '「${n.title}」将被删除，无法恢复。',

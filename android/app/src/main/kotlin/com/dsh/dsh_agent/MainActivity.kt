@@ -1,5 +1,7 @@
 package com.dsh.dsh_agent
 
+import android.os.Bundle
+import androidx.core.view.WindowCompat
 import android.content.Intent
 import android.os.Build
 import android.os.Handler
@@ -11,6 +13,19 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+
+    /**
+     * 让内容画到系统栏（状态栏 + 小白条）后面，实现真正的沉浸。
+     *
+     * `setDecorFitsSystemWindows(false)`：窗口不再为系统栏让出空间，
+     * Flutter 的画面一直铺到屏幕边缘；系统栏的颜色由 AppTheme 设成透明，
+     * 所以小白条区域直接显示页面底色，而不是一条不透明的色带。
+     * Dart 侧的 SafeArea / MediaQuery.padding 会负责把内容避开它们。
+     */
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+    }
 
     companion object {
         /** 系统级悬浮窗确认框的通道 */
@@ -24,11 +39,59 @@ class MainActivity : FlutterActivity() {
 
         /** 后台保活通道（前台服务 + 电池优化） */
         const val BG_CHANNEL = "dsh/bg"
+
+        /** 打开私有目录里的文件 + 定位 */
+        const val FILE_CHANNEL = "dsh/fileopen"
+
+        /** **设备凭据**（指纹 / 面部 / PIN，由系统自己弹） */
+        const val LOCK_CHANNEL = "dsh/lock"
+
+        /** **自带的 Linux 环境**（proot + Alpine minirootfs） */
+        const val LINUX_CHANNEL = "dsh/linux"
+
+        /** 独立沙箱插件（Ubuntu，无桌面图标）的安装/启动 */
+        const val SANDBOX_PLUGIN_CHANNEL = "dsh/sandbox_plugin"
+
+        /** Android 16 系统 Linux Terminal（AVF） */
+        const val ANDROID_LINUX_CHANNEL = "dsh/android_linux_subsystem"
+
+        /**
+         * 浏览器工具的原生那一路：真实触摸 / 真实按键 / cookie 落盘。
+         *
+         * 为什么单独一条：这三件事在 Dart 侧做不到（插件没有派发触摸的
+         * API，cookie 的 flush 也没暴露），而"页面查 isTrusted 就点不动"
+         * 和"刚登录完重开又要登"都是它们造成的。见 WebBridge.kt。
+         */
+        const val WEB_CHANNEL = "dsh/web"
+
+        /** 无障碍：控件树 / 语义动作 / 连续手势。 */
+        const val A11Y_CHANNEL = "dsh/a11y"
     }
 
     private var bridge: ShizukuBridge? = null
     private var overlay: OverlayConfirm? = null
     private var activity: ActivityOverlay? = null
+    private var fileBridge: FileOpenBridge? = null
+    private var lockBridge: LockBridge? = null
+    private var speechBridge: SpeechBridge? = null
+
+    /**
+     * 设备凭据（指纹 / 面部 / PIN）和**系统语音识别界面**的结果都从这里回来。
+     *
+     * 两者弹的都是**独立的 Activity**，结果只能经 `onActivityResult` 传回，
+     * 而且 requestCode 要和发出去的那个对上 —— 见 [LockBridge.REQ] /
+     * [SpeechBridge.REQ_SYSTEM_UI]。
+     */
+    @Deprecated("Activity Result 旧 API：这两条流程要的都是 startActivityForResult")
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: android.content.Intent?,
+    ) {
+        super.onActivityResult(requestCode, resultCode, data)
+        lockBridge?.onActivityResult(requestCode, resultCode)
+        speechBridge?.onActivityResult(requestCode, resultCode, data)
+    }
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -56,6 +119,15 @@ class MainActivity : FlutterActivity() {
         val act = ActivityOverlay(applicationContext)
         activity = act
 
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, A11Y_CHANNEL)
+            .setMethodCallHandler(A11yBridge(this))
+
+        // ChangeWhatYouThink 的 PDF 预览：Android 自带 PdfRenderer 转位图。
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PdfBridge.CHANNEL)
+            .setMethodCallHandler { call: MethodCall, result: MethodChannel.Result ->
+                PdfBridge().handle(call, result)
+            }
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, OVERLAY_CHANNEL)
             .setMethodCallHandler { call: MethodCall, result: MethodChannel.Result ->
                 when (call.method) {
@@ -75,7 +147,11 @@ class MainActivity : FlutterActivity() {
                     }
 
                     "updateActivity" -> {
-                        act.show(call.argument<String>("text") ?: "正在工作…")
+                        // ⚠️ 这里**不能调 show()**：show 会把浮窗显示出来，
+                        // 而"每一步都推一次文案"是常态 —— 于是应用内跑任务时
+                        // 浮窗就冒出来了（用户报的正是这个）。
+                        // 浮窗只在应用切到后台时显示，时机由 Dart 侧的生命周期决定。
+                        act.update(call.argument<String>("text") ?: "正在工作…")
                         result.success(true)
                     }
 
@@ -129,14 +205,17 @@ class MainActivity : FlutterActivity() {
                         // （act.hide 只收起、记住状态，不是销毁）。
                         act.hide()
 
-                        ov.show(title, command, reasons, dangerous) { approved ->
+                        // 回给 Dart 的是**三选一**的结果字符串
+                        // （deny / allow / allowAll，见 OverlayConfirm）：
+                        // 第三个出口是「全部运行」，布尔装不下它。
+                        ov.show(title, command, reasons, dangerous) { decision ->
                             main.post {
                                 if (!replied) {
                                     replied = true
                                     // 答完把浮窗放回来 —— 底层任务还在跑，
                                     // 用户仍然需要看到"在干什么"
                                     act.hide()
-                                    result.success(approved)
+                                    result.success(decision)
                                 }
                             }
                         }
@@ -244,6 +323,99 @@ class MainActivity : FlutterActivity() {
                 }.start()
             }
 
+        // ---------------------------------------------------------- 打开文件 + 定位
+        //
+        // 打开文件**必须用 Activity 的 context**：FileProvider 和
+        // startActivity 都要求有一个 Activity（弹选择器、给 URI 授权）。
+        // 用 applicationContext 会在授权环节失败。
+        val fb = FileOpenBridge(this)
+        fileBridge = fb
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, FILE_CHANNEL)
+            .setMethodCallHandler { call: MethodCall, result: MethodChannel.Result ->
+                fb.handle(call, result)
+            }
+
+        // ---------------------------------------------------------- 设备凭据（锁）
+        //
+        // **不用 local_auth**：那个依赖会把 BiometricPrompt 的文案、取消
+        // 语义、兼容性都搬到 Dart 侧判断。系统的 `KeyguardManager` 本来就
+        // 会按用户设置弹出"指纹 / 面部 / PIN"，而且**验证结果由系统保证**，
+        // 应用只拿一个 true/false。
+        val lockBridge = LockBridge(this)
+        this.lockBridge = lockBridge
+        lockBridge.attach()
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, LOCK_CHANNEL)
+            .setMethodCallHandler { call: MethodCall, result: MethodChannel.Result ->
+                lockBridge.handle(call, result)
+            }
+
+        // ---------------------------------------------------------- 语音输入
+        //
+        // 系统自带的 SpeechRecognizer：不引第三方插件，口令/权限都自己处理。
+        // 只有输入框旁边那颗麦克风会用到它。
+        val speech = SpeechBridge(this)
+        this.speechBridge = speech
+        val speechChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            SpeechBridge.CHANNEL,
+        )
+        speech.attach(speechChannel)
+        speechChannel.setMethodCallHandler { call: MethodCall, result: MethodChannel.Result ->
+            speech.handle(call, result)
+        }
+
+        // ---------------------------------------------------------- 自带 Linux 环境
+        //
+        // proot + Alpine minirootfs，**不依赖用户装 Termux**。
+        // 首次调用 install 会把 rootfs 解到私有目录（几秒），之后直接跑命令。
+        val linux = LinuxRuntime(applicationContext)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, LINUX_CHANNEL)
+            .setMethodCallHandler { call: MethodCall, result: MethodChannel.Result ->
+                linux.handle(call, result)
+            }
+
+        // ---------------------------------------------------------- 独立沙箱插件
+        val sandbox = SandboxPluginBridge(applicationContext)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            SANDBOX_PLUGIN_CHANNEL,
+        ).setMethodCallHandler { call: MethodCall, result: MethodChannel.Result ->
+            when (call.method) {
+                "status" -> result.success(sandbox.status())
+                "install" -> result.success(sandbox.install())
+                "launch" -> result.success(sandbox.launch())
+                "uninstall" -> result.success(sandbox.uninstall())
+                "exec" -> {
+                    sandbox.exec(
+                        command = call.argument<String>("command") ?: "",
+                        workdir = call.argument<String>("workdir"),
+                        timeoutMs = call.argument<Number>("timeoutMs")?.toLong()
+                            ?: 120_000L,
+                        stdin = call.argument<String>("stdin"),
+                        done = { r -> result.success(r) },
+                    )
+                }
+                "openInstallSettings" -> {
+                    sandbox.openUnknownSourcesSettings()
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        val androidLinux = AndroidLinuxSubsystemBridge(applicationContext)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            ANDROID_LINUX_CHANNEL,
+        ).setMethodCallHandler { call: MethodCall, result: MethodChannel.Result ->
+            when (call.method) {
+                "status" -> result.success(androidLinux.status())
+                "launch" -> result.success(androidLinux.launch())
+                else -> result.notImplemented()
+            }
+        }
+
         // ---------------------------------------------------------- 后台保活
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BG_CHANNEL)
             .setMethodCallHandler { call: MethodCall, result: MethodChannel.Result ->
@@ -295,6 +467,22 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     }
 
+                    // ---- 发一条**独立通知**（不是那条常驻的"正在工作"）----
+                    //
+                    // 用途：agent 在后台完成一件事时提醒用户。和前台服务
+                    // 那条通知刻意分开：那条是"我正在干活、别杀我"，
+                    // 这条是"有事找你"，两者生命周期完全不同。
+                    "notify" -> {
+                        val title = call.argument<String>("title") ?: "Zeus"
+                        val body = call.argument<String>("body") ?: ""
+                        try {
+                            Notifier.post(this, title, body)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
+
                     "updateService" -> {
                         val text = call.argument<String>("text") ?: ""
                         if (text.isNotEmpty()) {
@@ -311,6 +499,31 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        // ---------------------------------------------------------- 浏览器原生那一路
+        // 真实触摸 / 真实按键 / cookie 落盘。不注册的话，页面里查
+        // `event.isTrusted` 的站点永远点不动，而刚登录的会话也可能在
+        // 进程被杀时丢掉 —— 而且这两件事都**不会报错**，只会"没反应"。
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WEB_CHANNEL)
+            .setMethodCallHandler(WebBridge(this))
+    }
+
+    /**
+     * 权限请求的回调转发给 [FileOpenBridge]。
+     *
+     * 为什么需要这一步：`MethodChannel.Result` 是在 `configureFlutterEngine`
+     * 里拿到的，而权限对话框是**异步**的（用户可能想半天才点）。
+     * Result 不能跨那么久保存，所以由 Activity 在这里把结果接回来，
+     * 再交给 bridge 回复。
+     */
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        fileBridge?.onPermissionResult(requestCode, grantResults)
+        speechBridge?.onPermissionResult(requestCode, grantResults)
     }
 
     /** 有没有被加入"电池优化白名单" */
@@ -347,6 +560,8 @@ class MainActivity : FlutterActivity() {
         activity = null
         bridge?.dispose()
         bridge = null
+        speechBridge?.dispose()
+        speechBridge = null
         super.onDestroy()
     }
 }

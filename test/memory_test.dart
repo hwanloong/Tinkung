@@ -71,8 +71,11 @@ void main() {
     store.add('用户偏好简洁回答');
 
     expect(store.search('杭州').single.text, '用户住在杭州');
-    expect(store.search('python').single.text, '用户常用 Python',
-        reason: '搜索要不区分大小写');
+    expect(
+      store.search('python').single.text,
+      '用户常用 Python',
+      reason: '搜索要不区分大小写',
+    );
     expect(store.search('不存在的词'), isEmpty);
   });
 
@@ -118,8 +121,9 @@ void main() {
     await store.save();
 
     // 用同一个文件重新配置一次，模拟"重启应用"
-    final MemoryStore reloaded =
-        await MemoryStore.configure(File('${tmp.path}/memory.json'));
+    final MemoryStore reloaded = await MemoryStore.configure(
+      File('${tmp.path}/memory.json'),
+    );
 
     expect(reloaded.items.length, 2);
     expect(reloaded.items.first.text, '用户住在杭州');
@@ -133,8 +137,9 @@ void main() {
 
   test('文件损坏时降级成"没有记忆"，不抛异常', () async {
     await File('${tmp.path}/memory.json').writeAsString('{ 这不是 JSON');
-    final MemoryStore reloaded =
-        await MemoryStore.configure(File('${tmp.path}/memory.json'));
+    final MemoryStore reloaded = await MemoryStore.configure(
+      File('${tmp.path}/memory.json'),
+    );
     expect(reloaded.items, isEmpty);
   });
 }

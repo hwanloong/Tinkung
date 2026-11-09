@@ -10,12 +10,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'preview_fonts.dart';
+
 Future<void> _loadFonts() async {
-  final Map<String, List<String>> families = <String, List<String>>{
-    'TimesNewRoman': <String>['assets/fonts/times.ttf', 'assets/fonts/timesbd.ttf'],
-    'SimSun': <String>['assets/fonts/simsun.ttf'],
-    'Consolas': <String>['assets/fonts/consola.ttf'],
-  };
+  // 界面字体 + 中文兜底 + 图标，统一走共享的加载器
+  // （缺字体文件时跳过，见 preview_fonts.dart）。
+  await loadPreviewFonts();
 
   // 数学公式用的是包自带的 KaTeX 字体。测试环境必须显式加载，
   // 否则字形会渲染成实心方块 —— 和 Icon 需要加载 MaterialIcons 是同一回事。
@@ -26,7 +26,7 @@ Future<void> _loadFonts() async {
   // 注册成裸的 'KaTeX_Main' 匹配不上，会静默回退到占位字体。
   const String kp = 'packages/flutter_math_fork';
   const String k = '$kp/lib/katex_fonts/fonts';
-  families.addAll(<String, List<String>>{
+  final Map<String, List<String>> families = <String, List<String>>{
     '$kp/KaTeX_Main': <String>[
       '$k/KaTeX_Main-Regular.ttf',
       '$k/KaTeX_Main-Bold.ttf',
@@ -45,7 +45,7 @@ Future<void> _loadFonts() async {
     '$kp/KaTeX_Caligraphic': <String>['$k/KaTeX_Caligraphic-Regular.ttf'],
     '$kp/KaTeX_Script': <String>['$k/KaTeX_Script-Regular.ttf'],
     '$kp/KaTeX_Typewriter': <String>['$k/KaTeX_Typewriter-Regular.ttf'],
-  });
+  };
 
   for (final MapEntry<String, List<String>> e in families.entries) {
     final FontLoader loader = FontLoader(e.key);
@@ -54,10 +54,6 @@ Future<void> _loadFonts() async {
     }
     await loader.load();
   }
-
-  final FontLoader iconLoader = FontLoader('MaterialIcons');
-  iconLoader.addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'));
-  await iconLoader.load();
 }
 
 /// 贴近 DeepSeek 实际会输出的内容。

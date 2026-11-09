@@ -5,10 +5,7 @@ import 'package:flutter/services.dart';
 
 /// 后台保活状态
 class BgStatus {
-  const BgStatus({
-    this.batteryIgnored = false,
-    this.notifEnabled = true,
-  });
+  const BgStatus({this.batteryIgnored = false, this.notifEnabled = true});
 
   /// 是否已加入"电池优化白名单"。
   /// false 时 Doze 会挂起 CPU、断网，长任务跑不完。
@@ -59,10 +56,7 @@ class BackgroundService extends ChangeNotifier {
     try {
       final bool? b = await _channel.invokeMethod<bool>('batteryIgnored');
       final bool? n = await _channel.invokeMethod<bool>('notifEnabled');
-      _status = BgStatus(
-        batteryIgnored: b ?? false,
-        notifEnabled: n ?? true,
-      );
+      _status = BgStatus(batteryIgnored: b ?? false, notifEnabled: n ?? true);
       notifyListeners();
     } catch (_) {
       // 探测失败不影响主流程
@@ -118,5 +112,23 @@ class BackgroundService extends ChangeNotifier {
     }
     _running = false;
     notifyListeners();
+  }
+
+  /// 发一条**独立**通知（"有事找你"），和前台服务那条"正在工作"分开。
+  ///
+  /// 返回 false = 没发出去（非 Android / 没有通知权限 / 原生侧异常）。
+  /// 调用方**不要**把 false 当成错误抛给用户 —— 后台提醒是锦上添花，
+  /// 发不出通知不该让一次任务算失败。
+  Future<bool> postNotice({required String title, required String body}) async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final bool? ok = await _channel.invokeMethod<bool>(
+        'notify',
+        <String, dynamic>{'title': title, 'body': body},
+      );
+      return ok ?? false;
+    } catch (_) {
+      return false;
+    }
   }
 }

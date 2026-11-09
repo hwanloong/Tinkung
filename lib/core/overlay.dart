@@ -1,5 +1,7 @@
 import 'package:flutter/services.dart';
 
+import 'models.dart';
+
 /// 系统级悬浮窗确认框的 Dart 侧封装。
 ///
 /// 为什么不用应用内弹窗：工具很容易把别的应用切到前台
@@ -34,17 +36,22 @@ class OverlayService {
     }
   }
 
-  /// 弹出悬浮窗确认。返回 true 表示放行。
+  /// 弹出悬浮窗确认。返回用户的选择（[ConfirmDecision]）。
   ///
-  /// 原生侧有 3 分钟无人操作自动拒绝的兜底，不会永远挂着。
-  static Future<bool> showConfirm({
+  /// **不是布尔**：悬浮窗上和应用内弹窗一样有三个出路 —— 拒绝 / 执行 /
+  /// 全部运行。原生侧回的是 `deny` / `allow` / `allowAll` 三个字符串，
+  /// 认不出来的值一律按**拒绝**处理（fail-safe：这是执行命令的闸门，
+  /// 宁可多问一次，也不能因为解析不出来就放行）。
+  ///
+  /// 原生侧有 2 分钟无人操作自动拒绝的兜底，不会永远挂着。
+  static Future<ConfirmDecision> showConfirm({
     required String title,
     required String command,
     required List<String> reasons,
     required bool dangerous,
   }) async {
     try {
-      final bool? ok = await _channel.invokeMethod<bool>(
+      final String? r = await _channel.invokeMethod<String>(
         'showConfirm',
         <String, dynamic>{
           'title': title,
@@ -53,9 +60,13 @@ class OverlayService {
           'dangerous': dangerous,
         },
       );
-      return ok ?? false;
+      return switch (r) {
+        'allow' => ConfirmDecision.allow,
+        'allowAll' => ConfirmDecision.allowAll,
+        _ => ConfirmDecision.deny,
+      };
     } catch (_) {
-      return false;
+      return ConfirmDecision.deny;
     }
   }
 
@@ -68,10 +79,9 @@ class OverlayService {
   /// 所以显示时机由调用方根据生命周期决定，而不是这里判断。
   static Future<void> showActivity(String text) async {
     try {
-      await _channel.invokeMethod<bool>(
-        'showActivity',
-        <String, dynamic>{'text': text},
-      );
+      await _channel.invokeMethod<bool>('showActivity', <String, dynamic>{
+        'text': text,
+      });
     } catch (_) {
       // 浮窗是锦上添花，加不上也不该影响 agent 干活
     }
@@ -80,10 +90,9 @@ class OverlayService {
   /// 更新浮窗文案
   static Future<void> updateActivity(String text) async {
     try {
-      await _channel.invokeMethod<bool>(
-        'updateActivity',
-        <String, dynamic>{'text': text},
-      );
+      await _channel.invokeMethod<bool>('updateActivity', <String, dynamic>{
+        'text': text,
+      });
     } catch (_) {
       // 忽略
     }

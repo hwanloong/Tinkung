@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_label">Zeus 手机控制</string>
+    <string name="accessibility_service_description">让 Zeus 读取当前界面的控件结构，并用语义点击、输入和连续手势操作其他应用。只在你发起任务时使用，不保存屏幕内容。</string>
+</resources>

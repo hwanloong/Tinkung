@@ -48,31 +48,31 @@ class RuleTool extends AgentTool {
 
   @override
   Map<String, dynamic> get parameters => <String, dynamic>{
-        'type': 'object',
-        'properties': <String, dynamic>{
-          'action': <String, dynamic>{
-            'type': 'string',
-            'enum': <String>['list', 'create', 'update', 'delete', 'toggle'],
-          },
-          'id': <String, dynamic>{
-            'type': 'string',
-            'description': 'update / delete / toggle 时的规则 id（list 结果里能看到）',
-          },
-          'when': <String, dynamic>{
-            'type': 'string',
-            'description': '触发条件，例如「我问天气时」。用用户的原话或贴近的说法。',
-          },
-          'then': <String, dynamic>{
-            'type': 'string',
-            'description': '要你做的事，例如「先查用户所在城市再回答」',
-          },
-          'enabled': <String, dynamic>{
-            'type': 'boolean',
-            'description': 'toggle 时用：true 启用，false 停用',
-          },
-        },
-        'required': <String>['action'],
-      };
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'action': <String, dynamic>{
+        'type': 'string',
+        'enum': <String>['list', 'create', 'update', 'delete', 'toggle'],
+      },
+      'id': <String, dynamic>{
+        'type': 'string',
+        'description': 'update / delete / toggle 时的规则 id（list 结果里能看到）',
+      },
+      'when': <String, dynamic>{
+        'type': 'string',
+        'description': '触发条件，例如「我问天气时」。用用户的原话或贴近的说法。',
+      },
+      'then': <String, dynamic>{
+        'type': 'string',
+        'description': '要你做的事，例如「先查用户所在城市再回答」',
+      },
+      'enabled': <String, dynamic>{
+        'type': 'boolean',
+        'description': 'toggle 时用：true 启用，false 停用',
+      },
+    },
+    'required': <String>['action'],
+  };
 
   /// 找一条规则。抽出来是因为四个写操作都要用。
   static CustomRule? _find(String id) {
@@ -113,9 +113,7 @@ class RuleTool extends AgentTool {
       case 'delete':
         final CustomRule? cur = _find(args.str('id'));
         final String desc = cur == null ? args.str('id') : _describe(cur);
-        return RiskAssessment(RiskLevel.caution, <String>[
-          '删除规则：【$desc】',
-        ]);
+        return RiskAssessment(RiskLevel.caution, <String>['删除规则：【$desc】']);
 
       case 'toggle':
         final CustomRule? cur = _find(args.str('id'));
@@ -148,8 +146,7 @@ class RuleTool extends AgentTool {
     switch (action) {
       case 'list':
         if (store.rules.isEmpty) return '（用户还没有任何自定义规则）';
-        final StringBuffer sb =
-            StringBuffer('共 ${store.rules.length} 条：\n');
+        final StringBuffer sb = StringBuffer('共 ${store.rules.length} 条：\n');
         for (final CustomRule r in store.rules) {
           // 状态词先取出来存成变量：在单引号字符串的 ${} 里再写单引号，
           // Dart 解析器会提前结束字符串（写这个文件时踩过两次）

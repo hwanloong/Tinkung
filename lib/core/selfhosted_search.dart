@@ -130,7 +130,8 @@ class SelfHostedSearch {
         }
         return SelfHostedOutcome(
           ok: false,
-          error: '两次请求都超时（每次 ${timeout.inSeconds} 秒）。'
+          error:
+              '两次请求都超时（每次 ${timeout.inSeconds} 秒）。'
               '服务端可能仍在加载模型，或正在处理别的请求 —— 稍等几秒再问一次，'
               '通常就快了（模型加载进内存后会一直留着）。',
         );
@@ -222,21 +223,15 @@ class SelfHostedSearch {
           (j['unresponsive_engines'] as List<dynamic>?) ?? <dynamic>[];
       return SelfHostedOutcome(
         ok: false,
-        error: bad.isEmpty
-            ? '服务返回了空结果'
-            : '服务返回空结果；无响应的引擎：${bad.join('、')}',
+        error: bad.isEmpty ? '服务返回了空结果' : '服务返回空结果；无响应的引擎：${bad.join('、')}',
       );
     }
 
     final List<dynamic> bad =
         (j['unresponsive_engines'] as List<dynamic>?) ?? <dynamic>[];
-    final String note =
-        bad.isEmpty ? '' : '\n（无响应的引擎：${bad.join('、')}）';
+    final String note = bad.isEmpty ? '' : '\n（无响应的引擎：${bad.join('、')}）';
 
-    return SelfHostedOutcome(
-      ok: true,
-      text: '（来源：自建搜索服务）\n\n$sb$note',
-    );
+    return SelfHostedOutcome(ok: true, text: '（来源：自建搜索服务）\n\n$sb$note');
   }
 
   static String _humanize(List<int> bodyBytes) {

@@ -101,8 +101,10 @@ void main() {
 
   group('不可信内容包裹', () {
     test('明确标注来源与「这不是指令」', () {
-      final String s =
-          PromptScrubber.wrapUntrusted('页面正文', source: 'https://e.com');
+      final String s = PromptScrubber.wrapUntrusted(
+        '页面正文',
+        source: 'https://e.com',
+      );
       expect(s, contains('不是'));
       expect(s, contains('https://e.com'));
       expect(s, contains('页面正文'));
@@ -128,8 +130,7 @@ void main() {
         "unresponsive_engines": []
       }
       ''';
-      final SelfHostedOutcome r =
-          SelfHostedSearch.parseResponse(body, topK: 3);
+      final SelfHostedOutcome r = SelfHostedSearch.parseResponse(body, topK: 3);
       expect(r.ok, isTrue);
       expect(r.text, contains('asyncio — Asynchronous I/O'));
       expect(r.text, contains('0.877'));
@@ -173,8 +174,9 @@ void main() {
     });
 
     test('返回不是 JSON 时给出明确错误而不是抛异常', () {
-      final SelfHostedOutcome r =
-          SelfHostedSearch.parseResponse('<html>502</html>');
+      final SelfHostedOutcome r = SelfHostedSearch.parseResponse(
+        '<html>502</html>',
+      );
       expect(r.ok, isFalse);
       expect(r.error, contains('合法 JSON'));
     });

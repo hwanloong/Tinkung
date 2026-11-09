@@ -5,11 +5,84 @@ import '../theme/app_theme.dart';
 import '../theme/glass.dart';
 import 'home_shell.dart';
 import 'note_editor_page.dart';
+import 'widgets.dart';
 
 String _two(int v) => v.toString().padLeft(2, '0');
 
 String fmtDateTime(DateTime d) =>
     '${d.year}-${_two(d.month)}-${_two(d.day)} ${_two(d.hour)}:${_two(d.minute)}';
+
+// ------------------------------------------------------- 图标按钮的统一规格
+//
+// 「笔记」「计划」两页里所有**次要操作**（搜索 / 新建文件夹 / 新建 /
+// 显示已完成 / 文件夹的「⋯」/ 弹窗里的删除、清除时间）都是同一颗按钮，
+// 规格收在这一段。
+//
+// ## 为什么不再用 GlassIconButton
+//
+// 那是"液态玻璃"圆片：靠背后一层模糊 + 一圈半透明底色把图标托起来。
+// 头部现在是**平面**的 iOS 栏（无 elevation、无 tint、只有一条发丝分隔线），
+// 圆片背后没有任何东西可以模糊 —— 三颗 36 的圆片于是退化成三个比底色
+// 深一档的实心圆点：既没有层次，又和左边那颗 22 的返回键差着一整档尺寸，
+// 看上去就是"三个大小不一的盘子浮在标题旁边"。行内那个「⋯」和弹窗里的
+// 删除键是同一个毛病，只是底色从栏变成了卡片/面板。
+//
+// ## 为什么也不直接用默认的 IconButton
+//
+// 默认触达区是 48（`kMinButtonSize`），加上 `AppHeader` 自己留的 6 像素
+// 尾距，最后一个图标的右缘会落在离屏幕边 19 像素处 —— 而这一页的正文是 16。
+// 差 3 像素摆在同一块屏上是一条看得出来"右边多出一点点"的竖线。
+// 44 是 iOS 导航栏按钮的热区：44 的方框里 22 的图标内缩 11，6 + 11 = 17，
+// 正好回到正文那条线上；三颗并排时图标间距 22，也不会散成三个"各浮各的"点。
+//
+// ## 为什么间距不写成 SizedBox
+//
+// 相邻两颗按钮的方框直接相邻（额外间距 0）。只要不把 IconButton 那层 8 的
+// 内边距归零（见 [_flatIconButton] 里的 `padding: EdgeInsets.zero`），
+// "图标间距"就变成 8 + 间距 + 8，改间距时永远算不准；而相邻方框直接相接时，
+// 图标间距恒等于 `_kActionTap - _kActionIcon` = 22，要调疏密只动这一个减法。
+
+/// 图标本体尺寸。和 `leading` 那颗返回键（`iconSize: 22`）同规格。
+const double _kActionIcon = 22;
+
+/// 头部那排图标按钮的触达区。44 的来历见上面那段推导。
+const double _kActionTap = 44;
+
+/// 列表行内 / 弹窗里那颗图标的触达区，比头部小一档。
+///
+/// 它长在卡片或面板**内部**，卡片自己已经给了上下内边距；再套一个 44 的
+/// 方框会把文件夹行撑高 8 像素 —— 而这一行的职责是"让你进文件夹"，
+/// 不是"让你点「⋯」"。
+const double _kRowActionTap = 36;
+
+/// 平面图标按钮。尺寸 / 触达区 / 视觉密度只在这里写一次。
+///
+/// 散在七八处各写一遍的后果这次已经看到了：同一种按钮出现三种尺寸，
+/// 而漏改的那一颗夹在其它几颗中间**一眼就能看出来**。
+Widget _flatIconButton(
+  AppSurface s, {
+  required IconData icon,
+  required String tooltip,
+  VoidCallback? onTap,
+  Color? color,
+  bool inRow = false,
+}) {
+  final double box = inRow ? _kRowActionTap : _kActionTap;
+  return IconButton(
+    // 尺寸和颜色都显式给：`color` 在这里承担语义（危险操作是红的），
+    // 不能让它从 IconTheme 里被主题盖掉。
+    icon: Icon(icon, size: _kActionIcon, color: color ?? s.text),
+    tooltip: tooltip,
+    onPressed: onTap,
+    // 内边距归零 + 固定方框：只有这样"触达区到底多宽"才是确定的。
+    padding: EdgeInsets.zero,
+    constraints: BoxConstraints.tightFor(width: box, height: box),
+    // 密度钉成 standard：`VisualDensity.compact` 是 (-2, -2)，
+    // `effectiveConstraints` 会在宽高上各减 2 × 2 = 4，于是声明的 44
+    // 实际只有 40，右缘又跑回屏幕边附近。
+    visualDensity: VisualDensity.standard,
+  );
+}
 
 // ============================================================ 笔记
 
@@ -77,10 +150,10 @@ class _NotesPageState extends State<NotesPage> {
   /// 根级只显示**未归类的** —— 归了类的在文件夹里，重复显示会让
   /// 根级变成一个越来越长的混合列表，那文件夹就白做了。
   List<Note> _visibleNotes() => widget.store.filter(
-        folderId: _atRoot ? null : _openFolderId,
-        keyword: _search.text,
-        tag: _activeTag,
-      );
+    folderId: _atRoot ? null : _openFolderId,
+    keyword: _search.text,
+    tag: _activeTag,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -91,8 +164,7 @@ class _NotesPageState extends State<NotesPage> {
     final NoteFolder? folder = widget.store.folderById(_openFolderId);
 
     return Scaffold(
-      backgroundColor:
-          s.isDark ? AppColors.darkBg : AppColors.lightBg,
+      backgroundColor: s.pageBg,
       body: Column(
         children: <Widget>[
           AppHeader(
@@ -101,50 +173,54 @@ class _NotesPageState extends State<NotesPage> {
             title: folder?.name ?? '笔记',
             leading: folder == null
                 ? null
-                : Padding(
-                    padding: const EdgeInsets.only(right: 4),
-                    child: GlassIconButton(
-                      icon: Icons.arrow_back_rounded,
-                      tooltip: '返回全部',
-                      size: 36,
-                      iconSize: 18,
-                      onTap: () => setState(() {
-                        _openFolderId = null;
-                        _activeTag = null;
-                        _search.clear();
-                      }),
-                    ),
+                // **和根级那颗返回键长得一样。**
+                //
+                // 根级（`leading: null`）用的是 AppBar 自动生成的 Material 返回键；
+                // 进文件夹后原来换成一颗 36px 的玻璃圆片 + 一圈内边距 —— 同一个位置、
+                // 同一个动作，两颗按钮的尺寸、形状、触达区全都不一样，用户一眼就看出
+                // "这个返回键不对劲"。而 AppBar 的 leading 槽位本来就是给
+                // 标准图标按钮的（`AppHeader` 也明确不再是玻璃栏），
+                // 塞玻璃圆片进去既不合位置也不合设计。
+                : IconButton(
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    iconSize: 22,
+                    tooltip: '返回全部',
+                    color: s.text,
+                    onPressed: () => setState(() {
+                      _openFolderId = null;
+                      _activeTag = null;
+                      _search.clear();
+                    }),
                   ),
             subtitle: total == 0
                 ? '还没有笔记'
                 : _subtitle(folder, list.length, total),
+            // 这排按钮的尺寸/间距全部来自 [_flatIconButton]：两颗之间不加
+            // SizedBox，间距就是"方框直接相接"（见文件头那段注释）。
             actions: <Widget>[
-              GlassIconButton(
+              _flatIconButton(
+                s,
                 icon: _searching ? Icons.close_rounded : Icons.search_rounded,
                 tooltip: '搜索',
-                size: 36,
-                iconSize: 18,
                 onTap: () => setState(() {
                   _searching = !_searching;
                   if (!_searching) _search.clear();
                 }),
               ),
-              const SizedBox(width: 6),
-              // 在文件夹里「+」是新建笔记；在根级多一个建文件夹的入口
+              // 在文件夹里「+」是新建笔记；在根级多一个建文件夹的入口。
+              // 条件按钮直接省掉整个 Widget 而不是塞一个 SizedBox 占位 ——
+              // 占位会让"根级三颗、文件夹里两颗"两排的右缘对不齐。
               if (folder == null)
-                GlassIconButton(
+                _flatIconButton(
+                  s,
                   icon: Icons.create_new_folder_outlined,
                   tooltip: '新建文件夹',
-                  size: 36,
-                  iconSize: 18,
                   onTap: _newFolder,
                 ),
-              if (folder == null) const SizedBox(width: 6),
-              GlassIconButton(
+              _flatIconButton(
+                s,
                 icon: Icons.add_rounded,
                 tooltip: '新建笔记',
-                size: 36,
-                iconSize: 18,
                 onTap: () => _edit(null),
               ),
             ],
@@ -158,12 +234,15 @@ class _NotesPageState extends State<NotesPage> {
                         Container(
                           decoration: BoxDecoration(
                             color: s.surface,
-                            borderRadius:
-                                BorderRadius.circular(AppRadius.pill),
+                            borderRadius: BorderRadius.circular(
+                              AppRadius.field,
+                            ),
                             border: Border.all(color: s.border, width: 0.9),
                           ),
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 2),
+                            horizontal: 14,
+                            vertical: 2,
+                          ),
                           child: TextField(
                             controller: _search,
                             autofocus: true,
@@ -175,11 +254,14 @@ class _NotesPageState extends State<NotesPage> {
                               border: InputBorder.none,
                               enabledBorder: InputBorder.none,
                               focusedBorder: InputBorder.none,
-                              contentPadding:
-                                  const EdgeInsets.symmetric(vertical: 11),
+                              contentPadding: const EdgeInsets.symmetric(
+                                vertical: 11,
+                              ),
                               hintText: '搜索标题、正文或标签',
-                              hintStyle:
-                                  AppFonts.body(size: 14, color: s.muted),
+                              hintStyle: AppFonts.body(
+                                size: 14,
+                                color: s.muted,
+                              ),
                             ),
                           ),
                         ),
@@ -208,8 +290,9 @@ class _NotesPageState extends State<NotesPage> {
                                   t,
                                   count: widget.store
                                       .filter(
-                                        folderId:
-                                            _atRoot ? null : _openFolderId,
+                                        folderId: _atRoot
+                                            ? null
+                                            : _openFolderId,
                                         tag: t,
                                       )
                                       .length,
@@ -258,19 +341,20 @@ class _NotesPageState extends State<NotesPage> {
                     icon: Icons.sticky_note_2_outlined,
                     title: _search.text.trim().isEmpty ? '还没有笔记' : '没有匹配的笔记',
                     desc: _search.text.trim().isEmpty
-                        ? '点右上角「+」新建。\n也可以直接对 Agent 说「记一下……」，它会替你写进来。'
+                        ? '点右上角「+」新建。\n也可以直接对 Agent 说「记一下」，它会替你写进来。'
                         : '换个关键词试试。',
                   )
                 else if (list.isEmpty)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 20),
                     child: Text(
-                      _search.text.trim().isEmpty
-                          ? '这一层还没有笔记'
-                          : '没有匹配的笔记',
+                      _search.text.trim().isEmpty ? '这一层还没有笔记' : '没有匹配的笔记',
                       textAlign: TextAlign.center,
-                      style:
-                          AppFonts.body(size: 13, color: s.muted, height: 1.5),
+                      style: AppFonts.body(
+                        size: 13,
+                        color: s.muted,
+                        height: 1.5,
+                      ),
                     ),
                   )
                 else
@@ -314,15 +398,20 @@ class _NotesPageState extends State<NotesPage> {
         }),
         child: Row(
           children: <Widget>[
+            // 34×34 的圆角图标块：和「工作空间」页的文件行同一规格，
+            // 两处的"图标托底"看起来才像一套（见 workspace 页文件行）。
             Container(
-              width: 32,
-              height: 32,
-              decoration: ShapeDecoration(
-                color: AppColors.accent.withValues(alpha: 0.13),
-                shape: const CircleBorder(),
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: AppColors.accent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(AppRadius.code),
               ),
-              child: Icon(Icons.folder_rounded,
-                  size: 17, color: AppColors.accent),
+              child: Icon(
+                Icons.folder_rounded,
+                size: 18,
+                color: AppColors.accent,
+              ),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -338,14 +427,20 @@ class _NotesPageState extends State<NotesPage> {
                 ),
               ),
             ),
-            Text('$n', style: AppFonts.code(size: 12, color: s.muted)),
+            Text(
+              '$n',
+              textAlign: TextAlign.right,
+              style: AppFonts.body(size: 11.5, color: s.muted, height: 1.2),
+            ),
             const SizedBox(width: 4),
-            // 长按不是好交互（没人会去试），所以给一个明确的「⋯」
-            GlassIconButton(
+            // 长按不是好交互（没人会去试），所以给一个明确的「⋯」。
+            // 用行内档（[_kRowActionTap]）而不是头部那档：这一行的高度由
+            // 32 的文件夹图标和两行文字决定，44 的方框会把它撑高。
+            _flatIconButton(
+              s,
               icon: Icons.more_horiz_rounded,
               tooltip: '重命名 / 删除',
-              size: 32,
-              iconSize: 17,
+              inRow: true,
               onTap: () => _folderMenu(f),
             ),
           ],
@@ -363,41 +458,46 @@ class _NotesPageState extends State<NotesPage> {
       builder: (BuildContext ctx) {
         final AppSurface s = AppSurface.of(ctx);
         return SafeArea(
-            top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                const SizedBox(height: 14),
-                Text(
-                  f.name,
-                  style: AppFonts.body(
-                    size: 16,
-                    weight: FontWeight.w600,
-                    color: s.text,
-                    height: 1.2,
-                  ),
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const SizedBox(height: 14),
+              Text(
+                f.name,
+                style: AppFonts.body(
+                  size: 16,
+                  weight: FontWeight.w600,
+                  color: s.text,
+                  height: 1.2,
                 ),
-                const SizedBox(height: 12),
-                ListTile(
-                  leading: const Icon(Icons.drive_file_rename_outline_rounded,
-                      size: 20),
-                  title: const Text('重命名'),
-                  onTap: () => Navigator.of(ctx).pop('rename'),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: const Icon(
+                  Icons.drive_file_rename_outline_rounded,
+                  size: 20,
                 ),
-                ListTile(
-                  leading: const Icon(Icons.delete_outline_rounded,
-                      size: 20, color: AppColors.danger),
-                  title: Text(
-                    // **把后果写清楚**：这个数字是用户决定要不要删的关键依据，
-                    // 藏起来的话他只能靠猜
-                    n == 0 ? '删除文件夹' : '删除文件夹（$n 条笔记会变成未归类）',
-                    style: const TextStyle(color: AppColors.danger),
-                  ),
-                  onTap: () => Navigator.of(ctx).pop('delete'),
+                title: const Text('重命名'),
+                onTap: () => Navigator.of(ctx).pop('rename'),
+              ),
+              ListTile(
+                leading: Icon(
+                  Icons.delete_outline_rounded,
+                  size: 20,
+                  color: AppColors.danger,
                 ),
-                const SizedBox(height: 10),
-              ],
-            ),
+                title: Text(
+                  // **把后果写清楚**：这个数字是用户决定要不要删的关键依据，
+                  // 藏起来的话他只能靠猜
+                  n == 0 ? '删除文件夹' : '删除文件夹（$n 条笔记会变成未归类）',
+                  style: TextStyle(color: AppColors.danger),
+                ),
+                onTap: () => Navigator.of(ctx).pop('delete'),
+              ),
+              const SizedBox(height: 10),
+            ],
+          ),
         );
       },
     );
@@ -416,9 +516,14 @@ class _NotesPageState extends State<NotesPage> {
       final bool? ok = await showDialog<bool>(
         context: context,
         builder: (BuildContext ctx) => AlertDialog(
-          title: Text('删除文件夹',
-              style:
-                  AppFonts.body(size: 16.5, weight: FontWeight.w600, height: 1.3)),
+          title: Text(
+            '删除文件夹',
+            style: AppFonts.body(
+              size: 16.5,
+              weight: FontWeight.w600,
+              height: 1.3,
+            ),
+          ),
           content: mdText(
             '「${f.name}」将被删除。\n\n'
             '里面的 $n 条笔记**不会被删除**，它们会变成「未归类」，'
@@ -459,9 +564,14 @@ class _NotesPageState extends State<NotesPage> {
       builder: (BuildContext ctx) {
         final AppSurface s = AppSurface.of(ctx);
         return AlertDialog(
-          title: Text(title,
-              style:
-                  AppFonts.body(size: 16.5, weight: FontWeight.w600, height: 1.3)),
+          title: Text(
+            title,
+            style: AppFonts.body(
+              size: 16.5,
+              weight: FontWeight.w600,
+              height: 1.3,
+            ),
+          ),
           content: Container(
             decoration: ShapeDecoration(
               color: s.surface,
@@ -505,8 +615,16 @@ class _NotesPageState extends State<NotesPage> {
   ///
   /// [value] 为 null 表示「全部」。显示条数是因为筛选后最想知道的是
   /// "这个标签下有多少东西"，不给数字的话点进去可能是个空列表。
-  Widget _tagChip(AppSurface s, String label, String? value,
-      {required int count}) {
+  ///
+  /// 选中态**不靠整块染色**：底色仍是卡片面，只把文字和描边换成 accent。
+  /// 一排小胶囊里有一块被涂成浅橙时，旁边的标签会显得"没被充满"，
+  /// 扫一眼像是坏了一个；而同尺寸 + accent 描边的选中态既清楚又安静。
+  Widget _tagChip(
+    AppSurface s,
+    String label,
+    String? value, {
+    required int count,
+  }) {
     final bool active = _activeTag == value;
     final Color fg = active ? AppColors.accent : s.muted;
 
@@ -515,13 +633,13 @@ class _NotesPageState extends State<NotesPage> {
       onTap: () => setState(() => _activeTag = value),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: ShapeDecoration(
-          color: active
-              ? AppColors.accent.withValues(alpha: 0.12)
-              : s.surface,
-          shape: const StadiumBorder(),
-          // 选中的加一圈描边 —— 只靠底色在小屏上不够明显
-          shadows: null,
+        decoration: BoxDecoration(
+          color: s.surface,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          border: Border.all(
+            color: active ? AppColors.accent : s.border,
+            width: active ? 1 : 0.8,
+          ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -536,56 +654,65 @@ class _NotesPageState extends State<NotesPage> {
               ),
             ),
             const SizedBox(width: 5),
-            Text(
-              '$count',
-              style: AppFonts.code(size: 10.5, color: fg),
-            ),
+            Text('$count', style: AppFonts.code(size: 10.5, color: fg)),
           ],
         ),
       ),
     );
   }
 
+  /// 一条笔记。
+  ///
+  /// 层级靠**字号**拉开，不靠分隔线：标题 14.5/w600 → 摘要 12.5/muted →
+  /// 底部一行「标签在左、时间贴右」。时间之所以挪到整行最右而不是跟在
+  /// 摘要下面，是因为列表扫读时人眼沿着右边那条竖线找"最近改过哪条"，
+  /// 左对齐的时间会让每条的右侧边缘参差不齐。
   Widget _tile(AppSurface s, Note n) {
     return SurfaceCard(
-      margin: const EdgeInsets.only(bottom: 9),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(14, 11, 14, 11),
       onTap: () => _edit(n),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: Text(
-                  n.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppFonts.body(
-                    size: 15,
-                    weight: FontWeight.w600,
-                    color: s.text,
-                    height: 1.35,
-                  ),
-                ),
-              ),
-              if (n.tags.isNotEmpty)
-                GlassChip(label: n.tags.first, dense: true, color: AppColors.accent),
-            ],
+          Text(
+            n.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppFonts.body(
+              size: 14.5,
+              weight: FontWeight.w600,
+              color: s.text,
+              height: 1.35,
+            ),
           ),
           if (n.body.trim().isNotEmpty) ...<Widget>[
-            const SizedBox(height: 5),
+            const SizedBox(height: 4),
             Text(
               n.body.trim(),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: AppFonts.body(size: 13, color: s.muted, height: 1.5),
+              style: AppFonts.body(size: 12.5, color: s.muted, height: 1.5),
             ),
           ],
           const SizedBox(height: 7),
-          Text(
-            fmtDateTime(n.updatedAt),
-            style: AppFonts.code(size: 10.5, color: s.muted),
+          Row(
+            children: <Widget>[
+              if (n.tags.isNotEmpty)
+                Flexible(
+                  child: GlassChip(
+                    label: n.tags.first,
+                    dense: true,
+                    color: AppColors.accent,
+                  ),
+                ),
+              const Spacer(),
+              Text(
+                fmtDateTime(n.updatedAt),
+                textAlign: TextAlign.right,
+                style: AppFonts.body(size: 11.5, color: s.muted, height: 1.2),
+              ),
+            ],
           ),
         ],
       ),
@@ -687,36 +814,33 @@ class _TasksPageState extends State<TasksPage> {
   Widget build(BuildContext context) {
     final AppSurface s = AppSurface.of(context);
     final List<TaskItem> pending = widget.store.pending;
-    final List<TaskItem> done = widget.store.items
-        .where((TaskItem t) => t.done)
-        .toList()
-      ..sort((TaskItem a, TaskItem b) =>
-          (b.completedAt ?? b.createdAt).compareTo(a.completedAt ?? a.createdAt));
+    final List<TaskItem> done =
+        widget.store.items.where((TaskItem t) => t.done).toList()..sort(
+          (TaskItem a, TaskItem b) => (b.completedAt ?? b.createdAt).compareTo(
+            a.completedAt ?? a.createdAt,
+          ),
+        );
 
     return Scaffold(
-      backgroundColor:
-          s.isDark ? AppColors.darkBg : AppColors.lightBg,
+      backgroundColor: s.pageBg,
       body: Column(
         children: <Widget>[
           AppHeader(
             title: '任务',
             subtitle: _subtitle(pending),
             actions: <Widget>[
-              GlassIconButton(
+              _flatIconButton(
+                s,
                 icon: _showDone
                     ? Icons.visibility_off_outlined
                     : Icons.history_rounded,
                 tooltip: _showDone ? '隐藏已完成' : '显示已完成',
-                size: 36,
-                iconSize: 18,
                 onTap: () => setState(() => _showDone = !_showDone),
               ),
-              const SizedBox(width: 6),
-              GlassIconButton(
+              _flatIconButton(
+                s,
                 icon: Icons.add_rounded,
                 tooltip: '新建任务',
-                size: 36,
-                iconSize: 18,
                 onTap: () => _edit(null),
               ),
             ],
@@ -726,7 +850,8 @@ class _TasksPageState extends State<TasksPage> {
                 ? EmptyHint(
                     icon: Icons.check_circle_outline_rounded,
                     title: '没有待办任务',
-                    desc: '点右上角「+」新建，并设定执行时间。\n'
+                    desc:
+                        '点右上角「+」新建，并设定执行时间。\n'
                         '也可以直接对 Agent 说「提醒我明天下午三点交报告」。',
                   )
                 : ListView(
@@ -776,10 +901,11 @@ class _TasksPageState extends State<TasksPage> {
   }
 
   Widget _tile(AppSurface s, TaskItem t) {
-    final Color dueColor =
-        t.done ? s.muted : (t.overdue ? AppColors.danger : s.muted);
+    final Color dueColor = t.done
+        ? s.muted
+        : (t.overdue ? AppColors.danger : s.muted);
 
-    return SurfaceCard(
+    final Widget card = SurfaceCard(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.fromLTRB(10, 10, 12, 10),
       onTap: () => _edit(t),
@@ -808,16 +934,16 @@ class _TasksPageState extends State<TasksPage> {
               children: <Widget>[
                 Text(
                   t.title,
-                  style: AppFonts.body(
-                    size: 15,
-                    weight: FontWeight.w600,
-                    color: t.done ? s.muted : s.text,
-                    height: 1.35,
-                  ).copyWith(
-                    decoration:
-                        t.done ? TextDecoration.lineThrough : null,
-                    decorationColor: s.muted,
-                  ),
+                  style:
+                      AppFonts.body(
+                        size: 14.5,
+                        weight: FontWeight.w600,
+                        color: t.done ? s.muted : s.text,
+                        height: 1.35,
+                      ).copyWith(
+                        decoration: t.done ? TextDecoration.lineThrough : null,
+                        decorationColor: s.muted,
+                      ),
                 ),
                 if (t.detail.trim().isNotEmpty) ...<Widget>[
                   const SizedBox(height: 3),
@@ -825,31 +951,39 @@ class _TasksPageState extends State<TasksPage> {
                     t.detail.trim(),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style:
-                        AppFonts.body(size: 12.5, color: s.muted, height: 1.45),
+                    style: AppFonts.body(
+                      size: 12.5,
+                      color: s.muted,
+                      height: 1.45,
+                    ),
                   ),
                 ],
                 const SizedBox(height: 5),
+                // 时间贴右：和上面那条笔记列表用同一条右轨，翻两种列表时
+                // 视线不用换位置找"什么时候到期"。
                 Row(
                   children: <Widget>[
                     Icon(
                       t.dueAt == null
                           ? Icons.schedule_outlined
                           : t.overdue
-                              ? Icons.warning_amber_rounded
-                              : Icons.schedule_rounded,
+                          ? Icons.warning_amber_rounded
+                          : Icons.schedule_rounded,
                       size: 12.5,
                       color: dueColor,
                     ),
-                    const SizedBox(width: 5),
-                    Expanded(
-                      child: Text(
-                        t.dueAt == null
-                            ? '未设定执行时间'
-                            : t.overdue
-                                ? '逾期 · ${fmtDateTime(t.dueAt!)}'
-                                : fmtDateTime(t.dueAt!),
-                        style: AppFonts.code(size: 11, color: dueColor),
+                    const Spacer(),
+                    Text(
+                      t.dueAt == null
+                          ? '未设定执行时间'
+                          : t.overdue
+                          ? '逾期 · ${fmtDateTime(t.dueAt!)}'
+                          : fmtDateTime(t.dueAt!),
+                      textAlign: TextAlign.right,
+                      style: AppFonts.body(
+                        size: 11.5,
+                        color: dueColor,
+                        height: 1.2,
                       ),
                     ),
                   ],
@@ -860,13 +994,39 @@ class _TasksPageState extends State<TasksPage> {
         ],
       ),
     );
+
+    // 逾期的那条在卡片左缘压一道 3px 的竖条。
+    //
+    // 不做整卡染色：一整块淡红会把标题、摘要、时间全部泡进去，
+    // 读起来像"这一条坏了"；左边一道细竖条只在扫视时提示"看这里"，
+    // 展开读内容时它又退到边缘。
+    if (!t.overdue || t.done) return card;
+    return Stack(
+      children: <Widget>[
+        card,
+        Positioned(
+          left: 0,
+          top: 10,
+          bottom: 18,
+          child: Container(
+            width: 3,
+            decoration: BoxDecoration(
+              color: AppColors.danger,
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Future<void> _edit(TaskItem? existing) async {
-    final TextEditingController title =
-        TextEditingController(text: existing?.title ?? '');
-    final TextEditingController detail =
-        TextEditingController(text: existing?.detail ?? '');
+    final TextEditingController title = TextEditingController(
+      text: existing?.title ?? '',
+    );
+    final TextEditingController detail = TextEditingController(
+      text: existing?.detail ?? '',
+    );
     DateTime? due = existing?.dueAt;
     final AppSurface s = AppSurface.of(context);
 
@@ -902,10 +1062,12 @@ class _TasksPageState extends State<TasksPage> {
 
           return Padding(
             padding: EdgeInsets.only(
-                bottom: MediaQuery.of(ctx).viewInsets.bottom),
+              bottom: MediaQuery.of(ctx).viewInsets.bottom,
+            ),
             child: Container(
               constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+                // 让出状态栏：内容变长时标题会和时间/电量叠在一起。
+                maxHeight: sheetMaxHeight(ctx, 0.85),
               ),
               padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
               child: Column(
@@ -925,12 +1087,12 @@ class _TasksPageState extends State<TasksPage> {
                         ),
                       ),
                       if (existing != null)
-                        GlassIconButton(
+                        _flatIconButton(
+                          s,
                           icon: Icons.delete_outline_rounded,
                           tooltip: '删除',
-                          size: 34,
-                          iconSize: 17,
                           color: AppColors.danger,
+                          inRow: true,
                           onTap: () => Navigator.of(ctx).pop('delete'),
                         ),
                     ],
@@ -946,7 +1108,10 @@ class _TasksPageState extends State<TasksPage> {
                         Text(
                           '执行时间',
                           style: AppFonts.body(
-                              size: 12.8, color: s.muted, height: 1.3),
+                            size: 12.8,
+                            color: s.muted,
+                            height: 1.3,
+                          ),
                         ),
                         const SizedBox(height: 7),
                         Row(
@@ -954,15 +1119,19 @@ class _TasksPageState extends State<TasksPage> {
                             Expanded(
                               child: SurfaceCard(
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 12),
+                                  horizontal: 14,
+                                  vertical: 12,
+                                ),
                                 onTap: pickDue,
                                 child: Row(
                                   children: <Widget>[
-                                    Icon(Icons.event_rounded,
-                                        size: 16,
-                                        color: due == null
-                                            ? s.muted
-                                            : AppColors.accent),
+                                    Icon(
+                                      Icons.event_rounded,
+                                      size: 16,
+                                      color: due == null
+                                          ? s.muted
+                                          : AppColors.accent,
+                                    ),
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
@@ -971,9 +1140,7 @@ class _TasksPageState extends State<TasksPage> {
                                             : fmtDateTime(due!),
                                         style: AppFonts.body(
                                           size: 13.5,
-                                          color: due == null
-                                              ? s.muted
-                                              : s.text,
+                                          color: due == null ? s.muted : s.text,
                                           height: 1.3,
                                         ),
                                       ),
@@ -984,11 +1151,13 @@ class _TasksPageState extends State<TasksPage> {
                             ),
                             if (due != null) ...<Widget>[
                               const SizedBox(width: 8),
-                              GlassIconButton(
+                              // 和左边那张日期卡片并排：行内档 36 的方框
+                              // 正好落在卡片的垂直中线附近，44 会顶出去。
+                              _flatIconButton(
+                                s,
                                 icon: Icons.close_rounded,
                                 tooltip: '清除时间',
-                                size: 40,
-                                iconSize: 17,
+                                inRow: true,
                                 onTap: () => setSheet(() => due = null),
                               ),
                             ],
@@ -1016,14 +1185,11 @@ class _TasksPageState extends State<TasksPage> {
       widget.store.remove(existing.id);
     } else if (action == 'save') {
       if (existing == null) {
-        widget.store.create(
-          title: title.text,
-          detail: detail.text,
-          dueAt: due,
-        );
+        widget.store.create(title: title.text, detail: detail.text, dueAt: due);
       } else {
-        existing.title =
-            title.text.trim().isEmpty ? existing.title : title.text.trim();
+        existing.title = title.text.trim().isEmpty
+            ? existing.title
+            : title.text.trim();
         existing.detail = detail.text;
         existing.dueAt = due;
         widget.store.update(existing);

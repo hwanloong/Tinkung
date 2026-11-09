@@ -32,30 +32,35 @@ class PythonTool extends AgentTool {
       '· 需要精确计算（大数、浮点、循环、统计）—— 别自己心算，写代码跑\n'
       '· 文本处理、正则、编码转换、JSON/CSV 整理\n'
       '· 写一段脚本验证某个想法对不对\n'
-      '· 用已装的第三方库处理数据（openpyxl 操作 Excel 等）\n'
+      '⚠️ **能力边界（很重要）**：\n'
+      '· **只有标准库 + 内置的少数几个库，不能安装任何东西**：没有 pip，'
+      '`pip install` / `apk` / `apt` 一律无效\n'
+      '· `numpy` / `pandas` / `matplotlib` / `Pillow` / `scipy` 这类第三方库'
+      '**不可用**，import 会 ModuleNotFoundError —— 不要反复重试\n'
+      '· **要画图、要用第三方库，改用 `termux`（内置 Alpine）**：'
+      '先 `apk add python3 py3-matplotlib py3-numpy`，再用里面的 python3 跑，'
+      '图片写进 `/shared`\n'
       '注意：\n'
       '· **会话是连续的**：上一次定义的变量这一次还在，像 REPL 一样。'
       '要清空就用 reset=true\n'
       '· 返回的是 print 出来的内容。最后一行是表达式的话会自动显示它的值\n'
-      '· 报错会带上完整的 traceback —— **仔细看它，它能告诉你哪一行错了**\n'
-      '· 这是 CPython，但只装了有限的第三方库；缺库时告诉用户需要重新构建应用，'
-      '不要假装装上了';
+      '· 报错会带上完整的 traceback —— **仔细看它，它能告诉你哪一行错了**';
 
   @override
   Map<String, dynamic> get parameters => <String, dynamic>{
-        'type': 'object',
-        'properties': <String, dynamic>{
-          'code': <String, dynamic>{
-            'type': 'string',
-            'description': '要执行的 Python 代码。可以多行。',
-          },
-          'reset': <String, dynamic>{
-            'type': 'boolean',
-            'description': 'true 时先清空之前定义的变量，从头开始。默认 false。',
-          },
-        },
-        'required': <String>['code'],
-      };
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'code': <String, dynamic>{
+        'type': 'string',
+        'description': '要执行的 Python 代码。可以多行。',
+      },
+      'reset': <String, dynamic>{
+        'type': 'boolean',
+        'description': 'true 时先清空之前定义的变量，从头开始。默认 false。',
+      },
+    },
+    'required': <String>['code'],
+  };
 
   @override
   RiskAssessment riskFor(Map<String, dynamic> args) {
@@ -186,19 +191,17 @@ class PythonRisk {
     // 危险模式先扫 —— 一旦命中直接判危险，不再往下看
     for (final RegExp re in _dangerous) {
       if (re.hasMatch(c)) {
-        return RiskAssessment(
-          RiskLevel.dangerous,
-          <String>['危险操作：${_short(c)}'],
-        );
+        return RiskAssessment(RiskLevel.dangerous, <String>[
+          '危险操作：${_short(c)}',
+        ]);
       }
     }
 
     for (final RegExp re in _caution) {
       if (re.hasMatch(c)) {
-        return RiskAssessment(
-          RiskLevel.caution,
-          <String>['会改变状态或访问网络：${_short(c)}'],
-        );
+        return RiskAssessment(RiskLevel.caution, <String>[
+          '会改变状态或访问网络：${_short(c)}',
+        ]);
       }
     }
 
@@ -206,17 +209,15 @@ class PythonRisk {
     // 所以只有**极窄**的纯表达式才放行，其余一律要确认。
     // 这不是保守过头 —— 这个工具能在应用进程里为所欲为，
     // 宁可多问一次，也不能让一段没看清的代码自动跑。
-    final bool looksPure = !c.contains('import ') &&
+    final bool looksPure =
+        !c.contains('import ') &&
         !c.contains('open(') &&
         !c.contains('=') && // 赋值也可能有副作用（属性 setter）
         RegExp(r'^[\s\d+\-*/%().,eE_\[\]:\x27"]+$').hasMatch(c);
 
     if (looksPure) return RiskAssessment.safe;
 
-    return RiskAssessment(
-      RiskLevel.caution,
-      <String>['含代码执行：${_short(c)}'],
-    );
+    return RiskAssessment(RiskLevel.caution, <String>['含代码执行：${_short(c)}']);
   }
 
   static String _short(String s) =>

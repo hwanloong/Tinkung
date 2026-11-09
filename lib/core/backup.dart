@@ -65,6 +65,7 @@ class Backup {
       'maxToolRounds': settings.maxToolRounds,
       'autoApproveSafe': settings.autoApproveSafe,
       'useOverlayConfirm': settings.useOverlayConfirm,
+      'learningEnabled': settings.learningEnabled,
       'searchEngine': settings.searchEngine,
       'webSearchMode': settings.webSearchMode,
       'selfHostedSearchUrl': settings.selfHostedSearchUrl,
@@ -84,8 +85,9 @@ class Backup {
       'exportedAt': DateTime.now().toIso8601String(),
       'includesSecrets': includeSecrets,
       'settings': prefs,
-      'conversations':
-          conversations.map((Conversation c) => c.toJson()).toList(),
+      'conversations': conversations
+          .map((Conversation c) => c.toJson())
+          .toList(),
       'notes': notes.map((Note n) => n.toJson()).toList(),
       'tasks': tasks.map((TaskItem t) => t.toJson()).toList(),
       'plugins': plugins.map((CustomPlugin p) => p.toJson()).toList(),
@@ -114,9 +116,7 @@ class Backup {
     // 但版本号要挡一下，避免把未来格式当现在格式读。
     final int version = (j['version'] as num?)?.toInt() ?? 1;
     if (version > formatVersion) {
-      throw BackupException(
-        '备份版本是 $version，高于本应用支持的 $formatVersion，请先升级应用',
-      );
+      throw BackupException('备份版本是 $version，高于本应用支持的 $formatVersion，请先升级应用');
     }
 
     List<T> parseList<T>(
@@ -147,7 +147,10 @@ class Backup {
     }
 
     return BackupContents(
-      conversations: parseList<Conversation>('conversations', Conversation.fromJson),
+      conversations: parseList<Conversation>(
+        'conversations',
+        Conversation.fromJson,
+      ),
       notes: parseList<Note>('notes', Note.fromJson),
       tasks: parseList<TaskItem>('tasks', TaskItem.fromJson),
       plugins: parseList<CustomPlugin>('plugins', CustomPlugin.fromJson),
@@ -171,7 +174,8 @@ class Backup {
 
       settings.baseUrl = s('baseUrl') ?? settings.baseUrl;
       settings.model = s('model') ?? settings.model;
-      settings.thinkingEnabled = b('thinkingEnabled') ?? settings.thinkingEnabled;
+      settings.thinkingEnabled =
+          b('thinkingEnabled') ?? settings.thinkingEnabled;
       settings.reasoningEffort =
           s('reasoningEffort') ?? settings.reasoningEffort;
       settings.maxToolRounds =
@@ -180,12 +184,13 @@ class Backup {
           b('autoApproveSafe') ?? settings.autoApproveSafe;
       settings.useOverlayConfirm =
           b('useOverlayConfirm') ?? settings.useOverlayConfirm;
+      settings.learningEnabled =
+          b('learningEnabled') ?? settings.learningEnabled;
       settings.searchEngine = s('searchEngine') ?? settings.searchEngine;
       settings.webSearchMode = s('webSearchMode') ?? settings.webSearchMode;
       settings.selfHostedSearchUrl =
           s('selfHostedSearchUrl') ?? settings.selfHostedSearchUrl;
-      settings.visionBaseUrl =
-          s('visionBaseUrl') ?? settings.visionBaseUrl;
+      settings.visionBaseUrl = s('visionBaseUrl') ?? settings.visionBaseUrl;
       settings.visionModel = s('visionModel') ?? settings.visionModel;
     });
   }

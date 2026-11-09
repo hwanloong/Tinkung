@@ -50,9 +50,10 @@ app.*.map.json
 # ---------------------------------------------------------------------------
 # 字体（重要）
 #
-# Times New Roman / 宋体 / Consolas 都是商业专有字体，授权范围不包括再分发。
-# 打进公开仓库或公开分发带字体的产物都属于侵权，所以这里排除掉。
-# 仓库里只保留 assets/fonts/README.md 说明如何自行准备。
+# 界面用的 San Francisco Display 是**苹果的字体**，授权范围不包括再分发；
+# 测试里给系统族名当替身的 Noto Sans CJK 虽然是 OFL、可以分发，
+# 但 17MB 放进仓库不值得。所以整个 assets/fonts/ 下的字体文件都排除掉，
+# 仓库里只保留 assets/fonts/README.md 说明怎么准备。
 #
 # 注意：被忽略后本机仍可正常构建（文件还在），只是不会被提交。
 # ---------------------------------------------------------------------------
@@ -70,3 +71,21 @@ app.*.map.json
 
 # Gradle 构建报告（不该进仓库）
 /android/build/
+
+# ͼ��Ԥ������ʱ���tools/icon_preview.py ���ɣ�
+/tools/icon_preview/
+/tools/__pycache__/
+
+
+# Inter 4.1 (SIL OFL) ships with the app: declared in pubspec `fonts:`,
+# so a clean clone must have these four files or `flutter build` fails.
+!/assets/fonts/Inter-Regular.ttf
+!/assets/fonts/Inter-Medium.ttf
+!/assets/fonts/Inter-SemiBold.ttf
+!/assets/fonts/Inter-Bold.ttf
+
+# 本地调试用的地图脚本与截图（工程不引用，142 MB）
+/baoding-roads/
+
+# PowerShell 误写出来的文件名
+/$(Test-Path

@@ -89,8 +89,9 @@ class WebFetcher {
                 'User-Agent': WebViewLoader.mobileUserAgent,
                 'Accept': 'text/html,application/json,text/plain,*/*;q=0.8',
               });
-            final http.StreamedResponse sr =
-                await client.send(req).timeout(timeout);
+            final http.StreamedResponse sr = await client
+                .send(req)
+                .timeout(timeout);
             read = _readCapped(sr);
           } finally {
             client.close();
@@ -106,8 +107,7 @@ class WebFetcher {
         attempts: 1,
       );
 
-      final String ct =
-          (resp.headers['content-type'] ?? '').toLowerCase();
+      final String ct = (resp.headers['content-type'] ?? '').toLowerCase();
 
       // 二进制内容（视频/音频/图片/压缩包…）到此为止。
       // 正文已经在 _readCapped 里被拦下、根本没读进内存，
@@ -159,7 +159,9 @@ class WebFetcher {
       }
 
       // HTML：先做一次轻量去标签。正文够长就直接用，省掉一次 WebView 加载
-      if (ct.contains('html') || body.contains('<html') || body.contains('<!DOCTYPE')) {
+      if (ct.contains('html') ||
+          body.contains('<html') ||
+          body.contains('<!DOCTYPE')) {
         final String text = stripHtml(body);
         if (text.length >= 400) {
           return WebContent(
@@ -200,7 +202,8 @@ class WebFetcher {
         isDone: (String s) {
           try {
             final Map<String, dynamic> m = Map<String, dynamic>.from(
-                jsonDecode(WebViewLoader.unwrapJsString(s)) as Map);
+              jsonDecode(WebViewLoader.unwrapJsString(s)) as Map,
+            );
             return ((m['text'] ?? '') as String).length >= 400;
           } catch (_) {
             return false;
@@ -213,7 +216,8 @@ class WebFetcher {
       }
 
       final Map<String, dynamic> m = Map<String, dynamic>.from(
-          jsonDecode(WebViewLoader.unwrapJsString(raw)) as Map);
+        jsonDecode(WebViewLoader.unwrapJsString(raw)) as Map,
+      );
 
       final String text = (m['text'] ?? '').toString().trim();
       if (text.isEmpty) {
@@ -298,10 +302,7 @@ class WebFetcher {
   static String _prettyJson(String body, int maxChars) {
     try {
       final dynamic j = jsonDecode(body);
-      return _clip(
-        const JsonEncoder.withIndent('  ').convert(j),
-        maxChars,
-      );
+      return _clip(const JsonEncoder.withIndent('  ').convert(j), maxChars);
     } catch (_) {
       return _clip(body.trim(), maxChars);
     }
@@ -313,9 +314,10 @@ class WebFetcher {
   }
 
   static String? _extractTitle(String html) {
-    final RegExpMatch? m =
-        RegExp(r'<title[^>]*>([\s\S]*?)</title>', caseSensitive: false)
-            .firstMatch(html);
+    final RegExpMatch? m = RegExp(
+      r'<title[^>]*>([\s\S]*?)</title>',
+      caseSensitive: false,
+    ).firstMatch(html);
     if (m == null) return null;
     return stripHtml(m.group(1) ?? '');
   }
@@ -324,9 +326,13 @@ class WebFetcher {
   static String stripHtml(String html) {
     String s = html;
     s = s.replaceAll(
-        RegExp(r'<script[\s\S]*?</script>', caseSensitive: false), ' ');
+      RegExp(r'<script[\s\S]*?</script>', caseSensitive: false),
+      ' ',
+    );
     s = s.replaceAll(
-        RegExp(r'<style[\s\S]*?</style>', caseSensitive: false), ' ');
+      RegExp(r'<style[\s\S]*?</style>', caseSensitive: false),
+      ' ',
+    );
     s = s.replaceAll(RegExp(r'<[^>]+>'), ' ');
     s = s
         .replaceAll('&nbsp;', ' ')

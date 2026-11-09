@@ -1,15 +1,19 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show compute, visibleForTesting;
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:http/http.dart' as http;
 
+import '../core/metrics.dart';
 import '../core/models.dart';
 import '../core/net_error.dart';
 import '../core/scrub.dart';
 import 'browser_tool.dart';
 import 'tool.dart';
+import 'vision_image.dart';
 
 /// 联网：搜索 + 抓取网页。
 ///
@@ -36,27 +40,24 @@ class WebTool extends AgentTool {
 
   @override
   Map<String, dynamic> get parameters => <String, dynamic>{
-        'type': 'object',
-        'properties': <String, dynamic>{
-          'action': <String, dynamic>{
-            'type': 'string',
-            'enum': <String>['search', 'fetch'],
-          },
-          'query': <String, dynamic>{
-            'type': 'string',
-            'description': 'search 的关键词',
-          },
-          'url': <String, dynamic>{
-            'type': 'string',
-            'description': 'fetch 的完整网址',
-          },
-          'limit': <String, dynamic>{
-            'type': 'integer',
-            'description': 'search 返回条数，默认 5',
-          },
-        },
-        'required': <String>['action'],
-      };
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'action': <String, dynamic>{
+        'type': 'string',
+        'enum': <String>['search', 'fetch'],
+      },
+      'query': <String, dynamic>{
+        'type': 'string',
+        'description': 'search 的关键词',
+      },
+      'url': <String, dynamic>{'type': 'string', 'description': 'fetch 的完整网址'},
+      'limit': <String, dynamic>{
+        'type': 'integer',
+        'description': 'search 返回条数，默认 5',
+      },
+    },
+    'required': <String>['action'],
+  };
 
   @override
   RiskAssessment riskFor(Map<String, dynamic> args) => RiskAssessment.safe;
@@ -102,13 +103,20 @@ class WebTool extends AgentTool {
         '$query|$limit|${ctx.webSearchMode}|${ctx.selfHostedSearchUrl}|${ctx.searchEngine}';
 
     final String? cached = _SearchCache.get(key);
-    if (cached != null) return '（缓存结果，未重新联网）\n\n$cached';
+    if (cached != null) {
+      // 命中率埋点：以前这个计数**从来没有被调用过**，性能面板里
+      // 永远显示"还没有搜索过"（用户反馈"命中率查不出来"）。
+      AppMetrics.instance.recordSearchCache(hit: true);
+      return '（缓存结果，未重新联网）\n\n$cached';
+    }
+    AppMetrics.instance.recordSearchCache(hit: false);
 
     final String result = await _searchUncached(ctx, query, limit);
 
     // 只缓存成功的结果。失败往往是瞬时的（网络抖动、对方限流），
     // 缓存下来会导致用户重试也没用，反而更难恢复。
-    final bool failed = result.startsWith('以下通道都没成功') ||
+    final bool failed =
+        result.startsWith('以下通道都没成功') ||
         result.startsWith('错误：') ||
         result.startsWith('搜索失败') ||
         result.startsWith('搜索出错');
@@ -148,11 +156,7 @@ class WebTool extends AgentTool {
     // 复用同一个 BrowserTool 就消除了这个分裂：两条路最终落到同一套引擎。
     final String viaBrowser = await const BrowserTool().run(
       ctx,
-      <String, dynamic>{
-        'action': 'search',
-        'query': query,
-        'limit': limit,
-      },
+      <String, dynamic>{'action': 'search', 'query': query, 'limit': limit},
     );
 
     if (!viaBrowser.startsWith('搜索失败') && !viaBrowser.startsWith('搜索出错')) {
@@ -163,8 +167,9 @@ class WebTool extends AgentTool {
     // ---------- 3) DuckDuckGo 兜底（国内基本不可用，留着以防换网络）----------
     final String browser = await _ddg(query, limit);
     final ScrubResult cleaned = PromptScrubber.scrub(browser);
-    final String safeBrowser =
-        cleaned.clean ? browser : '$browser\n\n⚠ ${cleaned.summary}';
+    final String safeBrowser = cleaned.clean
+        ? browser
+        : '$browser\n\n⚠ ${cleaned.summary}';
 
     if (tried.isEmpty) return safeBrowser;
 
@@ -226,8 +231,9 @@ class WebTool extends AgentTool {
       final List<dynamic> results =
           (j['results'] as List<dynamic>?) ?? <dynamic>[];
       for (int i = 0; i < results.length; i++) {
-        final Map<String, dynamic> r =
-            Map<String, dynamic>.from(results[i] as Map);
+        final Map<String, dynamic> r = Map<String, dynamic>.from(
+          results[i] as Map,
+        );
         sb.writeln('[${i + 1}] ${r['title']}');
         sb.writeln('    ${r['url']}');
         final dynamic c = r['content'];
@@ -293,9 +299,9 @@ class WebTool extends AgentTool {
         '&format=json&no_html=1&skip_disambig=1&t=dsh-agent',
       );
 
-      final http.Response resp =
-          await http.get(uri, headers: <String, String>{'User-Agent': _ua})
-              .timeout(const Duration(seconds: 20));
+      final http.Response resp = await http
+          .get(uri, headers: <String, String>{'User-Agent': _ua})
+          .timeout(const Duration(seconds: 20));
 
       if (resp.statusCode != 200) {
         notes.add('即时答案 API HTTP ${resp.statusCode}');
@@ -315,8 +321,10 @@ class WebTool extends AgentTool {
 
       if (abstractText.trim().isNotEmpty) {
         n++;
-        sb.writeln('[1] ${heading.isEmpty ? query : heading}'
-            '${source.isEmpty ? '' : '（$source）'}');
+        sb.writeln(
+          '[1] ${heading.isEmpty ? query : heading}'
+          '${source.isEmpty ? '' : '（$source）'}',
+        );
         if (abstractUrl.isNotEmpty) sb.writeln('    $abstractUrl');
         sb.writeln('    $abstractText');
         sb.writeln();
@@ -325,8 +333,7 @@ class WebTool extends AgentTool {
       for (final dynamic item
           in (j['Results'] as List<dynamic>?) ?? <dynamic>[]) {
         if (n >= limit) break;
-        final Map<String, dynamic> m =
-            Map<String, dynamic>.from(item as Map);
+        final Map<String, dynamic> m = Map<String, dynamic>.from(item as Map);
         final String text = m['Text']?.toString() ?? '';
         if (text.trim().isEmpty) continue;
         n++;
@@ -340,15 +347,15 @@ class WebTool extends AgentTool {
       for (final dynamic item
           in (j['RelatedTopics'] as List<dynamic>?) ?? <dynamic>[]) {
         if (n >= limit) break;
-        final Map<String, dynamic> m =
-            Map<String, dynamic>.from(item as Map);
+        final Map<String, dynamic> m = Map<String, dynamic>.from(item as Map);
 
         final dynamic nested = m['Topics'];
         if (nested is List) {
           for (final dynamic sub in nested) {
             if (n >= limit) break;
-            final Map<String, dynamic> sm =
-                Map<String, dynamic>.from(sub as Map);
+            final Map<String, dynamic> sm = Map<String, dynamic>.from(
+              sub as Map,
+            );
             final String text = sm['Text']?.toString() ?? '';
             if (text.trim().isEmpty) continue;
             n++;
@@ -381,17 +388,16 @@ class WebTool extends AgentTool {
     }
   }
 
-  Future<String?> _tryLite(
-    String query,
-    int limit,
-    List<String> notes,
-  ) async {
+  Future<String?> _tryLite(String query, int limit, List<String> notes) async {
     try {
-      final http.Response resp = await http.get(
-        Uri.parse(
-            'https://lite.duckduckgo.com/lite/?q=${Uri.encodeComponent(query)}'),
-        headers: <String, String>{'User-Agent': _ua},
-      ).timeout(const Duration(seconds: 25));
+      final http.Response resp = await http
+          .get(
+            Uri.parse(
+              'https://lite.duckduckgo.com/lite/?q=${Uri.encodeComponent(query)}',
+            ),
+            headers: <String, String>{'User-Agent': _ua},
+          )
+          .timeout(const Duration(seconds: 25));
 
       if (resp.statusCode != 200) {
         notes.add('lite 端点 HTTP ${resp.statusCode}');
@@ -443,17 +449,16 @@ class WebTool extends AgentTool {
     }
   }
 
-  Future<String?> _tryHtml(
-    String query,
-    int limit,
-    List<String> notes,
-  ) async {
+  Future<String?> _tryHtml(String query, int limit, List<String> notes) async {
     try {
-      final http.Response resp = await http.get(
-        Uri.parse(
-            'https://html.duckduckgo.com/html/?q=${Uri.encodeComponent(query)}'),
-        headers: <String, String>{'User-Agent': _ua},
-      ).timeout(const Duration(seconds: 25));
+      final http.Response resp = await http
+          .get(
+            Uri.parse(
+              'https://html.duckduckgo.com/html/?q=${Uri.encodeComponent(query)}',
+            ),
+            headers: <String, String>{'User-Agent': _ua},
+          )
+          .timeout(const Duration(seconds: 25));
 
       if (resp.statusCode != 200) {
         notes.add('html 端点 HTTP ${resp.statusCode}');
@@ -531,13 +536,14 @@ class WebTool extends AgentTool {
       if (uri == null || !uri.hasScheme) {
         return '错误：url 不合法';
       }
-      final http.Response resp = await http.get(
-        uri,
-        headers: <String, String>{
-          'User-Agent':
-              'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36',
-        },
-      ).timeout(const Duration(seconds: 30));
+      final http.Response resp = await http
+          .get(
+            uri,
+            headers: <String, String>{
+              'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36',
+            },
+          )
+          .timeout(const Duration(seconds: 30));
 
       final String body = utf8.decode(resp.bodyBytes, allowMalformed: true);
       final String text = _stripHtml(body);
@@ -550,8 +556,14 @@ class WebTool extends AgentTool {
 
   static String _stripHtml(String html) {
     String s = html;
-    s = s.replaceAll(RegExp(r'<script[\s\S]*?</script>', caseSensitive: false), ' ');
-    s = s.replaceAll(RegExp(r'<style[\s\S]*?</style>', caseSensitive: false), ' ');
+    s = s.replaceAll(
+      RegExp(r'<script[\s\S]*?</script>', caseSensitive: false),
+      ' ',
+    );
+    s = s.replaceAll(
+      RegExp(r'<style[\s\S]*?</style>', caseSensitive: false),
+      ' ',
+    );
     s = s.replaceAll(RegExp(r'<[^>]+>'), ' ');
     s = s
         .replaceAll('&nbsp;', ' ')
@@ -567,13 +579,115 @@ class WebTool extends AgentTool {
   }
 }
 
+/// 一个可用的视觉模型配置
+class VisionTarget {
+  const VisionTarget(this.baseUrl, this.apiKey, this.model, this.label);
+
+  final String baseUrl;
+  final String apiKey;
+  final String model;
+
+  /// 给人看的来源说明，会写进工具返回值
+  final String label;
+}
+
+/// 按设置解析"这次该拿哪些视觉模型去试"。
+///
+/// ## 为什么要单独抽出来
+///
+/// 这里出过一次**"图像老是不走多模态、直接 OCR"**的 bug：
+/// 设置页上写的是「地址/密钥留空则复用上面那条」，但代码要求
+/// **地址和密钥同时非空**才认这个视觉模型 —— 用户按提示只填了模型名
+/// （或只填了地址），配置就被整个跳过；主模型要是再不支持图像
+/// （`deepseek-v4-pro`），候选列表直接为空，只能 OCR。
+///
+/// 现在的规则（缺的项一律回退主档案，和设置页的说明一致）：
+///  1. 用户填过地址或密钥 → 视为自定义视觉模型，缺的项用主档案补；
+///  2. 主模型声明能看图 → 也放进候选（自定义失败后还能兜底）；
+///  3. 主模型不能看图 → 用主档案的地址/密钥试一次默认视觉模型
+///     （`deepseek-flash`）。官方档案下这一条就是"识图专用模型"，
+///     用户不用再单独配任何东西。
+///
+/// 同一个地址 + 模型只请求一次。
+@visibleForTesting
+List<VisionTarget> resolveVisionTargets({
+  required String mainBaseUrl,
+  required String mainApiKey,
+  required String mainModel,
+  required bool mainSeesImages,
+  required String visionBaseUrl,
+  required String visionApiKey,
+  required String visionModel,
+}) {
+  final List<VisionTarget> out = <VisionTarget>[];
+  final String mainBase = mainBaseUrl.trim();
+  final String mainKey = mainApiKey.trim();
+  final String vUrl = visionBaseUrl.trim();
+  final String vKey = visionApiKey.trim();
+  // 视觉模型名的默认值就是 deepseek-flash：留空 = "用上面那个 Flash"。
+  final String vModel = visionModel.trim().isEmpty
+      ? 'deepseek-flash'
+      : visionModel.trim();
+
+  void add(String base, String key, String model, String label) {
+    final String b = base.trim().replaceAll(RegExp(r'/+$'), '');
+    final String k = key.trim();
+    final String m = model.trim();
+    if (b.isEmpty || k.isEmpty || m.isEmpty) return;
+    final bool dup = out.any(
+      (VisionTarget t) =>
+          t.baseUrl.trim().replaceAll(RegExp(r'/+$'), '') == b && t.model == m,
+    );
+    if (!dup) out.add(VisionTarget(b, k, m, label));
+  }
+
+  // 1) 自定义视觉模型：只填了其中一两项也算 —— 缺的按设置页的
+  //    "留空则复用"回退到主档案。
+  if (vUrl.isNotEmpty || vKey.isNotEmpty) {
+    add(
+      vUrl.isEmpty ? mainBase : vUrl,
+      vKey.isEmpty ? mainKey : vKey,
+      vModel,
+      '自定义视觉模型',
+    );
+  }
+
+  // 2) 主模型自己（声明能看图时）。
+  if (mainSeesImages) add(mainBase, mainKey, mainModel, '主模型');
+
+  // 3) 兜底：主模型不能看图时，用同一套地址/密钥再试一次默认视觉模型。
+  //    官方 `deepseek-v4-pro` 用户就是靠这条真正"走多模态"的。
+  //
+  //    但**同一个模型**不再试：那正是用户明确说"它看不了图"的那一个，
+  //    再发一次只会多等一轮、拿回同样的 400。
+  if (!mainSeesImages && vModel != mainModel.trim()) {
+    add(mainBase, mainKey, vModel, '默认视觉模型');
+  }
+
+  return out;
+}
+
+/// 视觉接口的完整地址。
+///
+/// 用户经常把**完整 endpoint** 直接粘进"视觉接口地址"
+/// （`…/chat/completions`）。以前无条件再拼一次，结果请求打到
+/// `…/chat/completions/chat/completions` → 404 → 降级 OCR。
+@visibleForTesting
+String visionChatEndpoint(String baseUrl) {
+  final String b = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+  if (b.isEmpty) return '';
+  if (b.endsWith('/chat/completions')) return b;
+  return '$b/chat/completions';
+}
+
 /// 识图。
 ///
 /// 优先级：
-///  1. 用户在设置里单独配置的视觉模型（覆盖主模型）；
+///  1. 用户在设置里单独配置的视觉模型（地址/密钥/模型都可只填一部分）；
 ///  2. 主模型自己 —— `deepseek-flash` 原生支持图像理解，直接复用主对话的 key；
-///  3. 本地 Google ML Kit OCR 兜底 —— 当主模型不支持图像（如 `deepseek-v4-pro`）
-///     或视觉接口调用失败时使用。离线、免费，只能读文字、不能理解画面。
+///  3. 主模型不支持图像时，用同一套地址密钥试一次默认视觉模型；
+///  4. 本地 Google ML Kit OCR 兜底 —— 只在上面全部失败时使用。
+///     离线、免费，只能读文字、不能理解画面。
 ///
 /// 注意：图片只能放在 `user` 消息里，放进 system/assistant 会被 API 判 400。
 class ImageTool extends AgentTool {
@@ -595,25 +709,23 @@ class ImageTool extends AgentTool {
 
   @override
   Map<String, dynamic> get parameters => <String, dynamic>{
-        'type': 'object',
-        'properties': <String, dynamic>{
-          'path': <String, dynamic>{
-            'type': 'string',
-            'description': '本地图片绝对路径',
-          },
-          'question': <String, dynamic>{
-            'type': 'string',
-            'description': '针对图片的问题；使用视觉模型时生效',
-          },
-          'mode': <String, dynamic>{
-            'type': 'string',
-            'enum': <String>['auto', 'model', 'local'],
-            'description': 'auto 默认（模型优先，失败降级 OCR）；'
-                'model 只用模型，失败不降级；local 只用本地 OCR',
-          },
-        },
-        'required': <String>['path'],
-      };
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'path': <String, dynamic>{'type': 'string', 'description': '本地图片绝对路径'},
+      'question': <String, dynamic>{
+        'type': 'string',
+        'description': '针对图片的问题；使用视觉模型时生效',
+      },
+      'mode': <String, dynamic>{
+        'type': 'string',
+        'enum': <String>['auto', 'model', 'local'],
+        'description':
+            'auto 默认（模型优先，失败降级 OCR）；'
+            'model 只用模型，失败不降级；local 只用本地 OCR',
+      },
+    },
+    'required': <String>['path'],
+  };
 
   @override
   RiskAssessment riskFor(Map<String, dynamic> args) => RiskAssessment.safe;
@@ -632,40 +744,26 @@ class ImageTool extends AgentTool {
     }
 
     final String question = args.str('question');
-    final String mode = args.str('mode', fallback: 'auto');
+    // 模型偶尔会把枚举值写成 `AUTO` / `Model` —— 统一小写，别因为大小写
+    // 掉进"未知模式"（默认分支等于 auto，但 `MODEL` 会失效、白降级 OCR）。
+    final String mode = args.str('mode', fallback: 'auto').trim().toLowerCase();
 
     if (mode == 'local') return _ocr(path);
 
-    // 组装候选：单独配置的视觉模型优先，其次主模型本身。
-    // 用列表而不是 if/else —— 原来那种写法一旦第一个分支失败就直接跳去 OCR，
-    // 主模型根本没机会试。
-    final List<_VisionTarget> targets = <_VisionTarget>[];
-
-    if (ctx.visionApiKey.trim().isNotEmpty &&
-        ctx.visionBaseUrl.trim().isNotEmpty) {
-      targets.add(_VisionTarget(
-        ctx.visionBaseUrl,
-        ctx.visionApiKey,
-        ctx.visionModel.trim().isEmpty ? 'deepseek-flash' : ctx.visionModel,
-        '自定义视觉模型',
-      ));
-    }
-
-    if (ctx.modelSeesImages && ctx.mainApiKey.trim().isNotEmpty) {
-      final _VisionTarget t = _VisionTarget(
-        ctx.mainBaseUrl,
-        ctx.mainApiKey,
-        ctx.mainModel,
-        '主模型',
-      );
-      // 和上面指向同一个模型就不重复请求
-      final bool dup = targets.any((_VisionTarget e) =>
-          e.baseUrl.trim() == t.baseUrl.trim() && e.model == t.model);
-      if (!dup) targets.add(t);
-    }
+    // 组装候选：单独配置的视觉模型优先，其次是主模型本身 /
+    // 同一套地址密钥下的默认视觉模型。规则见 [resolveVisionTargets]。
+    final List<VisionTarget> targets = resolveVisionTargets(
+      mainBaseUrl: ctx.mainBaseUrl,
+      mainApiKey: ctx.mainApiKey,
+      mainModel: ctx.mainModel,
+      mainSeesImages: ctx.modelSeesImages,
+      visionBaseUrl: ctx.visionBaseUrl,
+      visionApiKey: ctx.visionApiKey,
+      visionModel: ctx.visionModel,
+    );
 
     final List<String> errors = <String>[];
-    for (final _VisionTarget t in targets) {
+    for (final VisionTarget t in targets) {
       final _VisionResult r = await _callVision(
         baseUrl: t.baseUrl,
         apiKey: t.apiKey,
@@ -685,29 +783,34 @@ class ImageTool extends AgentTool {
       if (errors.isEmpty) {
         return '没有可用的视觉模型配置。\n'
             '当前主模型是「${ctx.mainModel}」，'
-            '${ctx.modelSeesImages ? '它支持图像输入，请检查设置里的 API Key 是否已填。' : '它不支持图像输入（deepseek-v4-pro 不支持），换成 deepseek-flash 即可。'}';
+            '${ctx.modelSeesImages ? '它支持图像输入，请检查设置里的 API Key 是否已填。' : '它不支持图像输入，请在设置 → 联网与识图里配置视觉模型（留空的地址/密钥会复用主模型）。'}';
       }
       return '模型识图失败（已指定 mode=model，不降级到 OCR）：\n${errors.join('\n')}';
     }
 
-    // 降级到本地 OCR，但把原因一并带上 —— 静默降级会让人以为「根本没调模型」
+    // 降级到本地 OCR，但**先说清局限**、再附原因。
+    //
+    // 顺序很重要：以前把 OCR 文本放最前面，模型经常直接拿它当"看懂了画面"，
+    // 用户得到的是一段没有画面理解的回答。现在第一句就是警告。
     final String ocr = await _ocr(path);
     if (errors.isEmpty) {
-      return '$ocr\n\n'
-          '—— 说明：没有可用的视觉模型，所以只做了本地文字识别。\n'
-          '当前主模型是「${ctx.mainModel}」，'
-          '${ctx.modelSeesImages ? '它支持图像输入，请检查设置里的 API Key 是否已填。' : '它不支持图像输入（deepseek-v4-pro 不支持），换成 deepseek-flash 就能理解画面内容。'}';
+      return '⚠ 没有可用的视觉模型，以下只是**本地 OCR** 提取的文字（没有画面理解）。\n\n'
+          '$ocr\n\n'
+          '—— 当前主模型是「${ctx.mainModel}」，'
+          '${ctx.modelSeesImages ? '它支持图像输入，请检查设置里的 API Key 是否已填。' : '它不支持图像输入；在 设置 → 联网与识图 里配置视觉模型即可（地址/密钥留空会复用主模型）。'}';
     }
-    return '$ocr\n\n'
-        '—— 模型识图未成功，已降级为本地 OCR。失败原因：\n${errors.join('\n')}';
+    return '⚠ 多模态识图没有成功，已降级为本地 OCR（只能读文字，理解不了画面）。\n'
+        '失败原因：\n${errors.join('\n')}\n\n'
+        '—— 本地 OCR 结果 ——\n$ocr';
   }
 
   Future<String> _ocr(String path) async {
     TextRecognizer? recognizer;
     try {
       recognizer = TextRecognizer(script: TextRecognitionScript.chinese);
-      final RecognizedText result =
-          await recognizer.processImage(InputImage.fromFilePath(path));
+      final RecognizedText result = await recognizer.processImage(
+        InputImage.fromFilePath(path),
+      );
 
       if (result.text.trim().isEmpty) {
         return '（本地 OCR 未识别到文字，图片可能是纯图形内容。'
@@ -742,32 +845,115 @@ class ImageTool extends AgentTool {
     required File file,
     required String question,
   }) async {
+    // 先按"最干净"的请求发一次（不带 `thinking`）。
+    _VisionResult r = await _visionOnce(
+      baseUrl: baseUrl,
+      apiKey: apiKey,
+      model: model,
+      file: file,
+      question: question,
+      thinking: false,
+    );
+
+    // 服务端不认 `thinking` 这个字段时，会回一句"未知参数"——
+    // 那是**请求本身**的问题，重试同一个形状没有意义，
+    // 但换成带 `thinking` 的写法（老版本一直用的那个）反而可能通，
+    // 因为有些服务端/中转站只认它。两边都试一次，比猜哪边对强。
+    if (r.content == null && _mentionsThinking(r.error)) {
+      final _VisionResult alt = await _visionOnce(
+        baseUrl: baseUrl,
+        apiKey: apiKey,
+        model: model,
+        file: file,
+        question: question,
+        thinking: true,
+      );
+      if (alt.content != null) return alt;
+      r = alt;
+    }
+
+    // 瞬时网络故障（长任务里最常见的失败）：隔一下再试**同一个**请求。
+    if (r.content == null && r.transient) {
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      final _VisionResult again = await _visionOnce(
+        baseUrl: baseUrl,
+        apiKey: apiKey,
+        model: model,
+        file: file,
+        question: question,
+        thinking: false,
+      );
+      if (again.content != null) return again;
+      r = again;
+    }
+    return r;
+  }
+
+  /// 请求里那句错误是不是在说"我不认识 thinking 这个字段"。
+  static bool _mentionsThinking(String? err) {
+    final String s = (err ?? '').toLowerCase();
+    return s.contains('thinking') ||
+        s.contains('unknown field') ||
+        s.contains('unrecognized') ||
+        s.contains('extra fields') ||
+        s.contains('invalid_request_error');
+  }
+
+  /// 真正发一次请求。[thinking] 只影响要不要带那个字段。
+  Future<_VisionResult> _visionOnce({
+    required String baseUrl,
+    required String apiKey,
+    required String model,
+    required File file,
+    required String question,
+    required bool thinking,
+  }) async {
+    // 在 try 外面声明：catch 里也要用它（超时/网络错时同样想知道"发了多大的图"）。
+    String sizeNote = '';
     try {
-      final List<int> bytes = await file.readAsBytes();
+      final List<int> raw = await file.readAsBytes();
       // 单图 base64 上限 32 MiB（官方限制），这里留点余量
-      if (bytes.length > 20 * 1024 * 1024) {
+      if (raw.length > 20 * 1024 * 1024) {
         return _VisionResult(
           null,
-          '图片过大（${(bytes.length / 1024 / 1024).toStringAsFixed(1)} MB，'
+          '图片过大（${(raw.length / 1024 / 1024).toStringAsFixed(1)} MB，'
           '内联上限 20 MB）',
         );
       }
 
-      final String b64 = base64Encode(bytes);
       final String ext = file.path.split('.').last.toLowerCase();
-      // 官方支持 JPEG / PNG / GIF / WebP，且按实际内容判断而非扩展名
-      final String mime = switch (ext) {
-        'png' => 'image/png',
-        'webp' => 'image/webp',
-        'gif' => 'image/gif',
-        _ => 'image/jpeg',
-      };
+      // 官方支持 JPEG / PNG / GIF / WebP。**先按文件头判断**、再退回扩展名：
+      // 下载来的图常被改名，mime 发错时有的服务端直接 400，
+      // 在这边的表现又是一次"降级 OCR"。
+      String mime =
+          VisionImage.sniffMime(raw) ??
+          switch (ext) {
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            'gif' => 'image/gif',
+            _ => 'image/jpeg',
+          };
 
-      final String base = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
-      Uri uri;
-      try {
-        uri = Uri.parse('$base/chat/completions');
-      } catch (_) {
+      // 图太大了就先**压成 JPEG**（见 [VisionImage.prepare] 的说明）。
+      //
+      // 以前只是缩到长边 1600 再编码成 **PNG**：尺寸小了、体积没小多少
+      // （截图压完还常有 1.5-3 MB），base64 之后超过不少中转站的请求体上限
+      // → 413/400 → `read_image` 降级成本地 OCR。JPEG 能把同样内容的
+      // 体积压到 1/5 以下。
+      // 放到**后台 isolate** 里压：一张 1080×2400 的截图解码 + 缩放 + 编码
+      // 在手机上要一两百毫秒，留在主 isolate 会让聊天界面卡一下。
+      final ({List<int> bytes, String mime, String note}) pic = await compute(
+        _prepareVisionImage,
+        (raw: Uint8List.fromList(raw), mime: mime),
+      );
+      final List<int> bytes = pic.bytes;
+      mime = pic.mime;
+      sizeNote = pic.note;
+      final String b64 = base64Encode(bytes);
+
+      final String endpoint = visionChatEndpoint(baseUrl);
+      final Uri? uri = Uri.tryParse(endpoint);
+      if (uri == null || uri.host.isEmpty) {
         return _VisionResult(null, '接口地址不合法：$baseUrl');
       }
 
@@ -802,7 +988,13 @@ class ImageTool extends AgentTool {
                 },
               ],
               // 识图不需要长思维链，关掉可以明显更快更省
-              'thinking': <String, dynamic>{'type': 'disabled'},
+              //
+              // 但 `thinking` **不在 OpenAI 规范里**，各家自己加：
+              // 不认它的服务端会直接 400（"unknown field"），
+              // 而那种 400 在我们这边表现成"视觉模型用不了，降级 OCR"。
+              // 所以默认**不带**它，只有确认对方要（见 _mentionsThinking）
+              // 才补上。
+              if (thinking) 'thinking': <String, dynamic>{'type': 'disabled'},
             }),
           )
           .timeout(const Duration(seconds: 90));
@@ -810,7 +1002,11 @@ class ImageTool extends AgentTool {
       if (resp.statusCode != 200) {
         return _VisionResult(
           null,
-          'HTTP ${resp.statusCode}：${_humanizeError(resp.bodyBytes)}',
+          // 把"发出去的图多大"一起报出来：413/400 的时候，这句话直接
+          // 说明是不是体积的问题（以前只能看到一句 HTTP 400）。
+          'HTTP ${resp.statusCode}：${_humanizeError(resp.bodyBytes)}'
+          '${sizeNote.isEmpty ? '' : '\n（这次发出去的图：$sizeNote）'}',
+          note: sizeNote,
         );
       }
 
@@ -839,17 +1035,19 @@ class ImageTool extends AgentTool {
         final String reasoning = msg['reasoning_content']?.toString() ?? '';
         return _VisionResult(
           null,
-          reasoning.trim().isEmpty
-              ? '返回内容为空'
-              : '只返回了思维链没有正文（可尝试换模型）',
+          reasoning.trim().isEmpty ? '返回内容为空' : '只返回了思维链没有正文（可尝试换模型）',
         );
       }
 
-      return _VisionResult(content, null);
+      return _VisionResult(content, null, note: sizeNote);
     } on TimeoutException {
-      return const _VisionResult(null, '请求超时（90 秒）');
+      return _VisionResult(null, '请求超时（90 秒）', transient: true, note: sizeNote);
     } catch (e) {
-      return _VisionResult(null, NetError.describe(e));
+      return _VisionResult(
+        null,
+        NetError.describe(e),
+        transient: NetError.isTransient(e),
+      );
     }
   }
 
@@ -872,24 +1070,30 @@ class ImageTool extends AgentTool {
   }
 }
 
-/// 一个可用的视觉模型配置
-class _VisionTarget {
-  const _VisionTarget(this.baseUrl, this.apiKey, this.model, this.label);
-
-  final String baseUrl;
-  final String apiKey;
-  final String model;
-
-  /// 给人看的来源说明，会写进工具返回值
-  final String label;
-}
-
 /// 视觉调用结果：成功带 [content]，失败带 [error]
 class _VisionResult {
-  const _VisionResult(this.content, this.error);
+  const _VisionResult(
+    this.content,
+    this.error, {
+    this.transient = false,
+    this.note = '',
+  });
 
   final String? content;
   final String? error;
+
+  /// 这次失败是不是"重试一次就可能成功"（网络抖动、超时）。
+  ///
+  /// 单独立一个字段：长任务里（termux 在跑编译、生成 PPT）手机本来就吃紧，
+  /// 偶发的连接中断很常见 —— 那时候直接降级成 OCR，等于把"一次抖动"
+  /// 变成了"这一轮只能看文字"。
+  final bool transient;
+
+  /// 这次实际发出去的图**被压成了什么样**（原图多大、压到多大）。
+  ///
+  /// 单独带出来是为了让"识图失败"那句报错**能自证**：
+  /// 是图太大被拒、还是模型/地址的问题，一眼能分。
+  final String note;
 }
 
 /// 搜索结果的内存缓存（带有效期 + 条数上限）。
@@ -933,3 +1137,10 @@ class _SearchCache {
     _entries[key] = (value, DateTime.now());
   }
 }
+
+/// `compute` 的入口必须是**顶层函数**（要能在另一个 isolate 里被找到）。
+///
+/// 参数和返回值都可跨 isolate 传递：Uint8List + String + record。
+({List<int> bytes, String mime, String note}) _prepareVisionImage(
+  ({Uint8List raw, String mime}) input,
+) => VisionImage.prepare(input.raw, mime: input.mime);

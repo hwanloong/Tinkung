@@ -40,35 +40,39 @@ class PromptScrubber {
         r'(instruction|prompt|rule|direction|message)s?',
         caseSensitive: false,
       ),
-      '忽略先前指令（英文）'
+      '忽略先前指令（英文）',
     ),
     (
       RegExp(
         r'disregard\s+(all\s+|any\s+)?(the\s+)?(previous|prior|above|earlier)',
         caseSensitive: false,
       ),
-      '无视先前内容（英文）'
-    ),
-    (
-      RegExp(r'forget\s+(everything|all)\s+(before|above|you)', caseSensitive: false),
-      '要求遗忘上下文（英文）'
+      '无视先前内容（英文）',
     ),
     (
       RegExp(
-        r'忽略(以上|之前|前面|上述|此前)?\s*(的)?\s*(所有|全部)?\s*(指令|指示|规则|提示|要求)',
+        r'forget\s+(everything|all)\s+(before|above|you)',
+        caseSensitive: false,
       ),
-      '忽略先前指令（中文）'
+      '要求遗忘上下文（英文）',
+    ),
+    (
+      RegExp(r'忽略(以上|之前|前面|上述|此前)?\s*(的)?\s*(所有|全部)?\s*(指令|指示|规则|提示|要求)'),
+      '忽略先前指令（中文）',
     ),
     (
       RegExp(r'无视(以上|之前|前面|上述)?\s*(的)?\s*(所有|全部)?\s*(指令|指示|规则|提示)'),
-      '无视先前内容（中文）'
+      '无视先前内容（中文）',
     ),
     (RegExp(r'忘记(之前|以上|前面|上述)\s*(的)?\s*(所有|全部)?'), '要求遗忘上下文（中文）'),
 
     // ---- 身份覆盖 ----
     (
-      RegExp(r'you\s+are\s+now\s+(a|an|the|no\s+longer)\b', caseSensitive: false),
-      '改写身份（英文）'
+      RegExp(
+        r'you\s+are\s+now\s+(a|an|the|no\s+longer)\b',
+        caseSensitive: false,
+      ),
+      '改写身份（英文）',
     ),
     (RegExp(r'你现在是|你从现在起是|从现在开始你是'), '改写身份（中文）'),
 
@@ -78,21 +82,26 @@ class PromptScrubber {
         r'<\s*\|?\s*(system|assistant|im_start|im_end|endoftext)\s*\|?\s*>',
         caseSensitive: false,
       ),
-      '伪造系统标记'
+      '伪造系统标记',
     ),
     (RegExp(r'\[/?INST\]', caseSensitive: false), '伪造指令标记'),
     (
-      RegExp(r'^\s*#{1,6}\s*(system|instruction|new\s+instructions?)\b',
-          caseSensitive: false, multiLine: true),
-      '伪造系统标题'
+      RegExp(
+        r'^\s*#{1,6}\s*(system|instruction|new\s+instructions?)\b',
+        caseSensitive: false,
+        multiLine: true,
+      ),
+      '伪造系统标题',
     ),
     (
       // 必须带限定词（新/以下/系统）才判定。
       // 不能把限定词写成可选 —— 否则「规则：请勿吸烟」这种正常内容也会被屏蔽，
       // 误伤的代价是模型读到残缺资料，比漏放几条更常见也更烦人。
-      RegExp(r'(新的?|以下的?|系统)\s*(系统)?\s*(指令|规则|提示词)\s*[:：]\s*\S',
-          multiLine: true),
-      '伪造新指令段（中文）'
+      RegExp(
+        r'(新的?|以下的?|系统)\s*(系统)?\s*(指令|规则|提示词)\s*[:：]\s*\S',
+        multiLine: true,
+      ),
+      '伪造新指令段（中文）',
     ),
 
     // ---- 窃取提示词 ----
@@ -102,11 +111,11 @@ class PromptScrubber {
         r'(system\s+prompt|initial\s+instructions?|hidden\s+instructions?)',
         caseSensitive: false,
       ),
-      '试图窃取系统提示（英文）'
+      '试图窃取系统提示（英文）',
     ),
     (
       RegExp(r'(泄露|输出|打印|重复|告诉我)\s*(你的)?\s*(系统提示|系统提示词|提示词|初始指令)'),
-      '试图窃取系统提示（中文）'
+      '试图窃取系统提示（中文）',
     ),
 
     // ---- 隐瞒行为 ----
@@ -115,7 +124,7 @@ class PromptScrubber {
         r'do\s+not\s+(tell|inform|notify|mention\s+(this\s+)?to)\s+(the\s+)?user',
         caseSensitive: false,
       ),
-      '要求隐瞒用户（英文）'
+      '要求隐瞒用户（英文）',
     ),
     (RegExp(r'不要(告诉|告知|通知|提醒|让)\s*(用户|他|她)'), '要求隐瞒用户（中文）'),
   ];

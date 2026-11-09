@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
+import '../core/cdn.dart';
 import '../theme/app_theme.dart';
 import '../theme/glass.dart';
 
@@ -62,10 +63,7 @@ class MarkdownCards {
       case 'image':
         return CardImage(url: content.trim());
       case 'mermaid':
-        return CardWebView(
-          title: '图表',
-          html: _mermaidTemplate(content),
-        );
+        return CardWebView(title: '图表', html: _mermaidTemplate(content));
       case 'html':
         return CardWebView(title: '嵌入内容', html: _normalizeHtml(content));
       default:
@@ -83,12 +81,27 @@ class MarkdownCards {
   ///
   /// 顺手还补了一个重置样式：默认 body 有 8px margin，
   /// 会让内容整体偏移、右边多出一条。
-  static String _normalizeHtml(String html) {
+  static String _normalizeHtml(String rawHtml) {
+    // 去掉页面自带的 CSP。
+    //
+    // 模型写卡片时爱加 `default-src 'none'`，看着安全，实际把
+    // `<audio>` / `<video>` 全掐死 —— 用户看到的是"卡片只能静态、
+    // 放不了音乐"，控制台报 CSP 违规。卡片是用户自己要看的內容，
+    // 外部来源就是他自己写的地址，这条只会帮倒忙。
+    final String html = rawHtml.replaceAll(
+      RegExp(
+        '<meta[^>]+http-equiv\\s*=\\s*["\']?Content-Security-Policy[^>]*>',
+        caseSensitive: false,
+      ),
+      '',
+    );
     final StringBuffer sb = StringBuffer();
 
     // 有 <head> 就插进去，没有就在开头补一个
     final bool hasViewport = RegExp(
-      r'<meta[^>]+name\s*=\s*["' "'" r']viewport',
+      r'<meta[^>]+name\s*=\s*["'
+      "'"
+      r']viewport',
       caseSensitive: false,
     ).hasMatch(html);
 
@@ -96,7 +109,8 @@ class MarkdownCards {
         '<meta name="viewport" content="width=device-width, '
         'initial-scale=1, maximum-scale=5">';
 
-    const String resetStyle = '<style>'
+    const String resetStyle =
+        '<style>'
         'html,body{margin:0;padding:0;overflow-x:hidden;}'
         'body{background:transparent;}'
         'img,canvas,svg,table{max-width:100%;}'
@@ -104,11 +118,13 @@ class MarkdownCards {
 
     if (RegExp(r'<head[^>]*>', caseSensitive: false).hasMatch(html)) {
       // 有 head：在它后面插入
-      sb.write(html.replaceFirstMapped(
-        RegExp(r'<head[^>]*>', caseSensitive: false),
-        (Match m) =>
-            '${m.group(0)}${hasViewport ? '' : viewportTag}$resetStyle',
-      ));
+      sb.write(
+        html.replaceFirstMapped(
+          RegExp(r'<head[^>]*>', caseSensitive: false),
+          (Match m) =>
+              '${m.group(0)}${hasViewport ? '' : viewportTag}$resetStyle',
+        ),
+      );
     } else {
       // 没有 head（模型常直接给片段）：自己包一层
       sb.write('<!DOCTYPE html><html><head><meta charset="utf-8">');
@@ -124,8 +140,10 @@ class MarkdownCards {
 
   /// 把 mermaid 源码包成一个能自渲染的页面。
   ///
-  /// mermaid 从 CDN 加载。**国内 CDN 可能不通** —— 页面里做了失败提示，
-  /// 而不是留一片空白（空白最糟：用户不知道是加载失败还是没内容）。
+  /// mermaid 从 CDN 加载，地址见 [CardCdn.mermaid] —— 那里按**国内可达性**
+  /// 排了一串镜像，逐个尝试。单个 CDN 在这件事上是不行的：
+  /// jsdelivr 在国内时通时不通，而且不同运营商表现不一样，
+  /// 一旦不通用户看到的就是"图表没了"。
   static String _mermaidTemplate(String source) {
     // 转义 </script> 之类，避免源码里的字符串提前闭合标签
     final String safe = source
@@ -141,25 +159,26 @@ class MarkdownCards {
        font-family:-apple-system,sans-serif}
   #out{display:flex;justify-content:center}
   #err{color:#c0392b;font-size:13px;line-height:1.6;padding:8px}
+  #err code{font-size:12px;word-break:break-all}
 </style></head><body>
 <div id="out"><pre class="mermaid">$safe</pre></div>
 <div id="err"></div>
 <script type="module">
   const err = document.getElementById('err');
-  const src = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-  // 双 CDN 兜底：jsdelivr 在国内时通时不通，unpkg 作为备选
-  const fallback = 'https://unpkg.com/mermaid@11/dist/mermaid.esm.min.mjs';
+  const urls = ${CardCdn.jsArray(CardCdn.mermaid)};
   async function load(){
-    for (const url of [src, fallback]) {
+    for (const url of urls) {
       try {
         const m = await import(url);
         m.default.initialize({startOnLoad:true, theme:'neutral',
                               securityLevel:'strict'});
         await m.default.run();
         return;
-      } catch(e) { /* 试下一个 */ }
+      } catch(e) { /* 试下一个镜像 */ }
     }
-    err.textContent = '图表库加载失败（CDN 不可达）。原始内容已在下方代码块中保留。';
+    err.innerHTML = '图表库加载失败（所有 CDN 镜像都不可达）。'
+      + '原始内容已在下方代码块中保留。<br>试过的地址：<code>'
+      + urls.join('<br>') + '</code>';
   }
   load();
 </script>
@@ -206,49 +225,52 @@ class CardImage extends StatelessWidget {
                 fit: BoxFit.contain,
                 // 加载/失败都要有反馈：这是网络图片，失败很常见，
                 // 留一片空白用户会以为是应用坏了
-                loadingBuilder: (BuildContext _, Widget child,
-                    ImageChunkEvent? p) {
-                  if (p == null) return child;
-                  return SizedBox(
-                    height: 120,
-                    child: Center(
-                      child: SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: AppColors.accent,
-                          value: p.expectedTotalBytes == null
-                              ? null
-                              : p.cumulativeBytesLoaded /
-                                  p.expectedTotalBytes!,
+                loadingBuilder:
+                    (BuildContext _, Widget child, ImageChunkEvent? p) {
+                      if (p == null) return child;
+                      return SizedBox(
+                        height: 120,
+                        child: Center(
+                          child: SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.accent,
+                              value: p.expectedTotalBytes == null
+                                  ? null
+                                  : p.cumulativeBytesLoaded /
+                                        p.expectedTotalBytes!,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  );
-                },
+                      );
+                    },
                 errorBuilder: (BuildContext _, Object e, StackTrace? _) =>
                     Container(
-                  height: 110,
-                  alignment: Alignment.center,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Icon(Icons.broken_image_outlined,
-                          size: 26, color: s.muted),
-                      const SizedBox(height: 6),
-                      Text(
-                        '图片加载失败',
-                        style: AppFonts.body(size: 12.5, color: s.muted),
+                      height: 110,
+                      alignment: Alignment.center,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Icon(
+                            Icons.broken_image_outlined,
+                            size: 26,
+                            color: s.muted,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            '图片加载失败',
+                            style: AppFonts.body(size: 12.5, color: s.muted),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            host,
+                            style: AppFonts.code(size: 10.5, color: s.muted),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 3),
-                      Text(
-                        host,
-                        style: AppFonts.code(size: 10.5, color: s.muted),
-                      ),
-                    ],
-                  ),
-                ),
+                    ),
               ),
             ),
             if (host.isNotEmpty)
@@ -291,7 +313,7 @@ class CardFullscreenPage extends StatelessWidget {
     final double bottom = MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
-      backgroundColor: s.isDark ? AppColors.darkBg : AppColors.lightBg,
+      backgroundColor: s.pageBg,
       body: Column(
         children: <Widget>[
           GlassBar(
@@ -318,19 +340,14 @@ class CardFullscreenPage extends StatelessWidget {
                     ),
                   ),
                 ),
-                Text(
-                  '双指缩放',
-                  style: AppFonts.body(size: 11.5, color: s.muted),
-                ),
+                Text('双指缩放', style: AppFonts.body(size: 11.5, color: s.muted)),
               ],
             ),
           ),
           Expanded(
             child: Padding(
               padding: EdgeInsets.only(bottom: bottom),
-              child: imageUrl != null
-                  ? _imageView()
-                  : _webView(),
+              child: imageUrl != null ? _imageView() : _webView(),
             ),
           ),
         ],
@@ -349,12 +366,8 @@ class CardFullscreenPage extends StatelessWidget {
         child: Image.network(
           imageUrl!,
           fit: BoxFit.contain,
-          errorBuilder: (BuildContext _, Object e, StackTrace? _) => Center(
-            child: Text(
-              '图片加载失败',
-              style: AppFonts.body(size: 13),
-            ),
-          ),
+          errorBuilder: (BuildContext _, Object e, StackTrace? _) =>
+              Center(child: Text('图片加载失败', style: AppFonts.body(size: 13))),
         ),
       ),
     );
@@ -374,6 +387,17 @@ class CardFullscreenPage extends StatelessWidget {
         allowFileAccess: false,
         allowContentAccess: false,
         geolocationEnabled: false,
+        // ---- 媒体播放 ----
+        //
+        // 默认 `mediaPlaybackRequiresUserGesture` 是 **true**：
+        // `<audio>` / `<video>` 会被拦下来，表现为"点了没声音"、
+        // "只能静态" —— 用户报的就是这个。
+        //
+        // 卡片是**用户自己看的**一段内容，没有广告位，不需要
+        // 用"必须点一下"来防自动播放骚扰。直接放行。
+        mediaPlaybackRequiresUserGesture: false,
+        // 允许页面自己接管全屏视频，否则播放器只能在卡片那个小框里
+        allowsInlineMediaPlayback: true,
         transparentBackground: true,
         cacheEnabled: true,
         clearCache: false,
@@ -441,10 +465,8 @@ class _CardWebViewState extends State<CardWebView> {
   void _openFullscreen() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (BuildContext _) => CardFullscreenPage(
-          title: widget.title,
-          html: widget.html,
-        ),
+        builder: (BuildContext _) =>
+            CardFullscreenPage(title: widget.title, html: widget.html),
       ),
     );
   }
@@ -480,8 +502,11 @@ class _CardWebViewState extends State<CardWebView> {
               padding: const EdgeInsets.fromLTRB(12, 9, 6, 6),
               child: Row(
                 children: <Widget>[
-                  Icon(Icons.widgets_outlined,
-                      size: 14, color: AppColors.accent),
+                  Icon(
+                    Icons.widgets_outlined,
+                    size: 14,
+                    color: AppColors.accent,
+                  ),
                   const SizedBox(width: 7),
                   Expanded(
                     child: Text(
@@ -577,6 +602,12 @@ class _CardWebViewState extends State<CardWebView> {
                             allowContentAccess: false,
                             // 不给硬件权限
                             geolocationEnabled: false,
+                            // ---- 媒体播放 ----
+                            // 默认 `mediaPlaybackRequiresUserGesture` 为 true，
+                            // `<audio>`/`<video>`/WebAudio 全都起不来，
+                            // 卡片就只能是"静态图片"。放行。
+                            mediaPlaybackRequiresUserGesture: false,
+                            allowsInlineMediaPlayback: true,
                             // 透明背景，跟主题融为一体
                             transparentBackground: true,
                             // 地图/图表要加载 CDN，所以网络必须开 ——
@@ -593,13 +624,17 @@ class _CardWebViewState extends State<CardWebView> {
                             useWideViewPort: false,
                             loadWithOverviewMode: true,
                           ),
-                          onReceivedError: (InAppWebViewController _,
-                              WebResourceRequest req, WebResourceError err) {
-                            // 只有主文档失败才算失败；CDN 子资源失败由页面自己提示
-                            if (req.isForMainFrame == true && mounted) {
-                              setState(() => _failed = true);
-                            }
-                          },
+                          onReceivedError:
+                              (
+                                InAppWebViewController _,
+                                WebResourceRequest req,
+                                WebResourceError err,
+                              ) {
+                                // 只有主文档失败才算失败；CDN 子资源失败由页面自己提示
+                                if (req.isForMainFrame == true && mounted) {
+                                  setState(() => _failed = true);
+                                }
+                              },
                         ),
                 ),
               ),

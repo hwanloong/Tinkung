@@ -80,12 +80,12 @@ class TermuxService extends ChangeNotifier {
       _status == TermuxStatus.ready || _status == TermuxStatus.notVerified;
 
   String get statusLabel => switch (_status) {
-        TermuxStatus.notInstalled => '未安装 Termux',
-        TermuxStatus.noPermission => '缺少 RUN_COMMAND 权限',
-        TermuxStatus.notVerified => '已安装（尚未验证）',
-        TermuxStatus.ready => '可用',
-        TermuxStatus.unsupported => '当前平台不支持',
-      };
+    TermuxStatus.notInstalled => '未安装 Termux',
+    TermuxStatus.noPermission => '缺少 RUN_COMMAND 权限',
+    TermuxStatus.notVerified => '已安装（尚未验证）',
+    TermuxStatus.ready => '可用',
+    TermuxStatus.unsupported => '当前平台不支持',
+  };
 
   /// 启动时探测一次
   Future<void> refresh() async {
@@ -96,8 +96,7 @@ class TermuxService extends ChangeNotifier {
     }
     try {
       final dynamic r = await _channel.invokeMethod<dynamic>('status');
-      final Map<dynamic, dynamic> m =
-          r is Map ? r : <dynamic, dynamic>{};
+      final Map<dynamic, dynamic> m = r is Map ? r : <dynamic, dynamic>{};
       final bool installed = m['installed'] == true;
       final bool permitted = m['permitted'] == true;
 
@@ -129,15 +128,17 @@ class TermuxService extends ChangeNotifier {
     }
 
     try {
-      final dynamic raw = await _channel.invokeMethod<dynamic>('run', <String, dynamic>{
-        'command': command,
-        'workdir': workdir,
-        'background': background,
-        'timeoutMs': timeout.inMilliseconds,
-      });
+      final dynamic raw = await _channel.invokeMethod<dynamic>(
+        'run',
+        <String, dynamic>{
+          'command': command,
+          'workdir': workdir,
+          'background': background,
+          'timeoutMs': timeout.inMilliseconds,
+        },
+      );
 
-      final Map<dynamic, dynamic> m =
-          raw is Map ? raw : <dynamic, dynamic>{};
+      final Map<dynamic, dynamic> m = raw is Map ? raw : <dynamic, dynamic>{};
 
       final TermuxResult result = TermuxResult(
         ok: m['ok'] == true,

@@ -1,5 +1,8 @@
+import '../core/linux.dart';
 import '../core/models.dart';
+import '../core/sandbox_plugin.dart';
 import '../core/termux.dart';
+import '../core/terminal_session.dart';
 import 'risk.dart';
 import 'tool.dart';
 
@@ -19,48 +22,65 @@ class TermuxTool extends AgentTool {
   String get name => 'termux';
 
   @override
-  String get title => 'Termux';
+  String get title => 'Linux';
 
   @override
   String get description =>
-      '在 Termux 的 Linux 环境里执行命令。**优先用它而不是 run_shell** —— '
-      '它有完整的软件生态（python / node / git / clang / ffmpeg 等，'
-      '可用 pkg install 装包），而 run_shell 只有 Android 自带的那几条命令。\n'
-      '什么时候用：写代码并**实际运行验证**、用 python 做数据/图像处理、'
-      '跑 git、编译小程序、用 ffmpeg 处理媒体。\n'
+      '在当前选择的 Linux 环境里执行命令（自带 Alpine / Termux / 独立 Ubuntu 沙箱）。'
+      '这是完整的 Linux，'
+      '不是 Android 的简版 shell。\n'
+      '· 自带 Alpine 用 **`apk`**，独立 Ubuntu 沙箱用 **`apt`**，'
+      'Termux 用 `pkg`；装过的东西会留着\n'
+      '· 里面能跑 shell 脚本、git、编译、ffmpeg 等真正的 Linux 工具\n'
+      '· Python 请优先用 `python` 工具（那个是常驻会话），'
+      '在 Linux 里跑 python 适合"要和其它命令串起来"的场景\n'
+      '什么时候用它：需要标准 GNU 工具（`grep -P`、`sed -i` 扩展、'
+      '完整 `tar`/`find`）、要编译、要装 Linux 程序、'
+      '或者需要一个干净的 Linux 来复现问题。\n'
+      '**文件位置**（很重要）：\n'
+      '· 要产出给用户的东西 → 写到 **`/shared`**（应用和外面的交换目录，'
+      '用户能一键打开、也能发给别的应用）。写在 `/root`、`/tmp` 里的文件'
+      '用户在文件管理器里**找不到** —— 那是应用私有目录；\n'
+      '· 用户的文件在 `/sdcard` 下，**已经挂进来了**，可以直接读；\n'
       '注意：\n'
-      '· 命令用 `bash -lc` 执行，所以 `pkg` `python` 这些都在 PATH 里\n'
-      '· **交互式命令会挂住**（apt 问 y/n、ssh 要密码）—— 用 `-y`、'
-      '`--non-interactive`、`GIT_TERMINAL_PROMPT=0` 这类方式绕开\n'
-      '· 长时间任务（编译）用 background=true 并把输出重定向到文件，'
-      '之后用 file_op 读那个文件，不要干等';
+      '· 不需要用户装 Termux —— 环境就在应用内部，和手机系统是隔离的\n'
+      '· 若返回"环境还没安装"，让用户去「设置 → 终端」点一下安装，'
+      '**不要反复重试**\n'
+      '· 前台模式有超时（默认 60 秒）；长任务用 background=true：'
+      '内置 Alpine 会自动 nohup 并写日志，返回里会给 PID 和日志路径\n'
+      '· 这台设备**没有 crond**；需要定时/定期的事用 `plan` 工具建计划树，'
+      '不要写 crontab，也不要让脚本自己 `sleep 900` 常驻';
 
   @override
   Map<String, dynamic> get parameters => <String, dynamic>{
-        'type': 'object',
-        'properties': <String, dynamic>{
-          'command': <String, dynamic>{
-            'type': 'string',
-            'description': '要执行的命令。可以是一长串（用 && 串联），'
-                '也可以先写个脚本再 bash 它。',
-          },
-          'workdir': <String, dynamic>{
-            'type': 'string',
-            'description': '工作目录。注意 Termux 的 home 是 '
-                '/data/data/com.termux/files/home，手机存储是 /sdcard',
-          },
-          'background': <String, dynamic>{
-            'type': 'boolean',
-            'description': 'true 时立即返回、不等结果（长任务用）。'
-                '此时拿不到输出，请自行重定向到文件。',
-          },
-          'timeout_sec': <String, dynamic>{
-            'type': 'integer',
-            'description': '前台模式等待秒数，默认 60，上限 300',
-          },
-        },
-        'required': <String>['command'],
-      };
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'command': <String, dynamic>{
+        'type': 'string',
+        'description':
+            '要执行的命令。可以是一长串（用 && 串联），'
+            '也可以先写个脚本再让它跑。',
+      },
+      'workdir': <String, dynamic>{
+        'type': 'string',
+        'description':
+            '工作目录。默认 /root。要让产出能被用户拿到，'
+            '用 /shared（详见工具说明里的"文件位置"）。',
+      },
+      'background': <String, dynamic>{
+        'type': 'boolean',
+        'description':
+            'true 时立即返回、不等结果（长任务用）。'
+            '内置 Alpine 会自动 nohup 并给出日志路径；Termux 通道仍建议'
+            '自行重定向到文件。',
+      },
+      'timeout_sec': <String, dynamic>{
+        'type': 'integer',
+        'description': '前台模式等待秒数，默认 60，上限 300',
+      },
+    },
+    'required': <String>['command'],
+  };
 
   @override
   RiskAssessment riskFor(Map<String, dynamic> args) {
@@ -71,32 +91,69 @@ class TermuxTool extends AgentTool {
   String summarize(Map<String, dynamic> args) {
     final String c = args.str('command').trim().replaceAll(RegExp(r'\s+'), ' ');
     final String short = c.length > 120 ? '${c.substring(0, 120)}…' : c;
-    return args.boolVal('background', fallback: false)
-        ? '[后台] $short'
-        : short;
+    return args.boolVal('background', fallback: false) ? '[后台] $short' : short;
   }
 
   @override
   Future<String> run(ToolContext ctx, Map<String, dynamic> args) async {
-    final TermuxService t = TermuxService.instance;
-
-    if (t.status == TermuxStatus.notInstalled) {
-      return 'Termux 未安装。\n\n'
-          '这个工具需要用户先装 Termux（注意：Play 商店那版已废弃，'
-          '要从 F-Droid 装）。\n'
-          '装好后还需要在 Termux 里执行一次：\n'
-          '  echo \'allow-external-apps=true\' >> ~/.termux/termux.properties\n'
-          '  termux-reload-settings';
-    }
-
     final String command = args.str('command');
     if (command.trim().isEmpty) return '错误：缺少 command';
 
-    final bool background = args.boolVal('background', fallback: false);
-    final int timeoutSec =
-        args.intVal('timeout_sec', fallback: 60).clamp(5, 300);
+    // 先说清"当前实际会用哪条通道"，再决定说什么话。
+    //
+    // 这里原来是个**错位的判断**：只查 Termux 应用装没装，没装就直接返回
+    // "Termux 未安装，请去 F-Droid 装"。但这个应用**自带**一套 Alpine，
+    // 根本不需要 Termux —— 于是内置环境装好了、系统提示词里也写着
+    // "Linux 可用"，模型一调这个工具却被告知"去装 Termux"，
+    // 用户照着装完还是没用。判断必须跟着**实际通道**走。
+    final ShellBackend backend = TerminalSession.instance.active;
 
-    final TermuxResult r = await t.run(
+    if (backend == ShellBackend.builtin && !LinuxService.instance.installed) {
+      return '内置 Linux 环境还没安装（解压一次，几秒钟）。\n\n'
+          '请让用户去「设置 → 终端」点一下「安装并启用」，装完再重试。\n'
+          '**不要反复重试这个工具**，也不要建议用户装 Termux —— '
+          '这个应用自带 Linux，不需要 Termux。';
+    }
+
+    if (backend == ShellBackend.termux &&
+        TermuxService.instance.status == TermuxStatus.notInstalled) {
+      return '当前运行的通道是外接 Termux，但用户没装 Termux。\n\n'
+          '可以改走自带的那条：让用户去「设置 → 终端」点「安装并启用」，'
+          '或者在终端页把「运行环境」切成「自带 Alpine」。\n'
+          '注意：Play 商店那版 Termux 已废弃，要装得从 F-Droid 装，'
+          '装完还得在 Termux 里开一次 allow-external-apps。';
+    }
+
+    if (backend == ShellBackend.sandbox) {
+      final SandboxPluginStatus s = await SandboxPluginService.instance
+          .status();
+      if (!s.installed) {
+        return '当前运行环境是独立 Ubuntu 沙箱，但插件还没安装。\n\n'
+            '让用户去「设置 → 终端 → 独立 Ubuntu 沙箱」点「安装插件」，'
+            '装完在「运行环境」里选「独立沙箱」。';
+      }
+    }
+
+    if (backend == ShellBackend.systemLinux) {
+      return '当前运行环境是 Android 16 系统 Linux。它由系统 Terminal 的 AVF '
+          '虚拟机管理，没有公开的跨应用命令接口，Zeus 无法代跑命令。\n\n'
+          '请让用户打开「设置 → 终端」，在运行环境里选「系统 Linux」，'
+          '再点「打开系统终端」手动操作；需要 agent 执行命令时改用'
+          '「自带 Alpine」「独立沙箱」或「Termux」。';
+    }
+
+    final bool background = args.boolVal('background', fallback: false);
+    final int timeoutSec = args
+        .intVal('timeout_sec', fallback: 60)
+        .clamp(5, 300);
+
+    // 走 **TerminalSession** 而不是直接调 TermuxService：
+    // 这样模型跑的命令会进终端页的流水，和用户手敲的命令**排在一起**。
+    //
+    // 这是"agent 动了我的系统，我想知道它干了什么"的关键 ——
+    // 如果模型跑的命令不进流水，终端页就只是个玩具，
+    // 用户仍然看不到 agent 真正执行过什么。
+    final ShellResult r = await TerminalSession.instance.run(
       command,
       workdir: args.str('workdir').trim().isEmpty
           ? null
@@ -106,15 +163,22 @@ class TermuxTool extends AgentTool {
     );
 
     if (!r.ok) {
-      return 'Termux 执行失败：${r.error ?? '未知原因'}\n'
+      return '执行失败：${r.error ?? '未知原因'}\n'
           '${r.combined.trim().isEmpty ? '' : '\n输出：\n${clampOutput(r.combined, max: 3000)}'}';
     }
 
-    if (r.background) {
+    if (background) {
+      final String extra = r.combined.trim();
+      if (extra.isEmpty) {
+        return '已在后台启动。\n'
+            '输出不会回传 —— 请把命令改成重定向到文件的形式，'
+            '例如：`$command > /sdcard/dsh/job.log 2>&1`，'
+            '然后用 `file_op` 的 read 去读它。';
+      }
       return '已在后台启动。\n'
-          '输出不会回传 —— 如果之后要看进度，请把命令改成重定向到文件的形式，'
-          '例如：`$command > /sdcard/dsh/job.log 2>&1`，'
-          '然后用 `file_op` 的 read 去读它。';
+          '$extra\n'
+          '之后用 `file_op` 的 read 读日志看进度；'
+          '进程是否还能活着取决于应用有没有被系统回收。';
     }
 
     final String out = clampOutput(r.combined, max: 8000);
@@ -157,7 +221,9 @@ class TermuxRisk {
     RegExp(r'\b(curl|wget)\b[^|;]*\|\s*(sudo\s+)?(ba|z|d)?sh\b'),
     RegExp(r'\b(base64|eval|source)\b.*\|\s*(ba|z|d)?sh\b'),
     RegExp(r'\brm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/'),
-    RegExp(r'\brm\s+-[a-zA-Z]*[rf][a-zA-Z]*\s+(/sdcard|/storage|/data|\$HOME|~)\s*$'),
+    RegExp(
+      r'\brm\s+-[a-zA-Z]*[rf][a-zA-Z]*\s+(/sdcard|/storage|/data|\$HOME|~)\s*$',
+    ),
     RegExp(r'\bmkfs|\bdd\s+if=|\bshred\b'),
     RegExp(r'\bchmod\s+(-R\s+)?777\s+/'),
     RegExp(r'\bsudo\b'),
@@ -199,10 +265,9 @@ class TermuxRisk {
 
       for (final RegExp re in _dangerous) {
         if (re.hasMatch(s)) {
-          return RiskAssessment(
-            RiskLevel.dangerous,
-            <String>['危险命令：${_short(s)}'],
-          );
+          return RiskAssessment(RiskLevel.dangerous, <String>[
+            '危险命令：${_short(s)}',
+          ]);
         }
       }
 

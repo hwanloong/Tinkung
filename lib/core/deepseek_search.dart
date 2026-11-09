@@ -42,17 +42,16 @@ class DeepSeekServerSearch {
     Duration timeout = const Duration(seconds: 60),
   }) async {
     if (apiKey.trim().isEmpty) {
-      return const ServerSearchOutcome(
-        searched: false,
-        error: '没有可用的 API Key',
-      );
+      return const ServerSearchOutcome(searched: false, error: '没有可用的 API Key');
     }
 
     final String base = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
     final Uri uri;
     try {
       // 注意是 /responses，不是 /chat/completions
-      uri = Uri.parse('${base.isEmpty ? 'https://api.deepseek.com' : base}/responses');
+      uri = Uri.parse(
+        '${base.isEmpty ? 'https://api.deepseek.com' : base}/responses',
+      );
     } catch (_) {
       return const ServerSearchOutcome(searched: false, error: '接口地址不合法');
     }
@@ -68,7 +67,8 @@ class DeepSeekServerSearch {
               },
               body: jsonEncode(<String, dynamic>{
                 'model': model,
-                'instructions': '请使用联网搜索获取最新信息，'
+                'instructions':
+                    '请使用联网搜索获取最新信息，'
                     '并在回答中标注信息来源。不要凭记忆回答时效性内容。',
                 'input': query,
                 'tools': <Map<String, dynamic>>[
@@ -104,10 +104,7 @@ class DeepSeekServerSearch {
     try {
       j = jsonDecode(body) as Map<String, dynamic>;
     } catch (e) {
-      return ServerSearchOutcome(
-        searched: false,
-        error: '返回不是合法 JSON：$e',
-      );
+      return ServerSearchOutcome(searched: false, error: '返回不是合法 JSON：$e');
     }
 
     final List<dynamic> output = (j['output'] as List<dynamic>?) ?? <dynamic>[];
@@ -124,7 +121,8 @@ class DeepSeekServerSearch {
       return ServerSearchOutcome(
         searched: false,
         text: text,
-        error: '服务端没有执行搜索（响应里没有 web_search_call）。'
+        error:
+            '服务端没有执行搜索（响应里没有 web_search_call）。'
             '官方文档把 web_search 标为「忽略」，这条通道目前很可能不生效。',
       );
     }
@@ -134,10 +132,7 @@ class DeepSeekServerSearch {
 
   /// 取输出文本。`output_text` 是便利字段，但不同实现未必都带，
   /// 所以再从 message item 里兜一层。
-  static String extractText(
-    Map<String, dynamic> root,
-    List<dynamic> output,
-  ) {
+  static String extractText(Map<String, dynamic> root, List<dynamic> output) {
     final String direct = root['output_text']?.toString() ?? '';
     if (direct.trim().isNotEmpty) return direct.trim();
 

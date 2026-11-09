@@ -77,7 +77,7 @@ class _PythonConsolePageState extends State<PythonConsolePage> {
     final PythonService py = PythonService.instance;
 
     return Scaffold(
-      backgroundColor: s.isDark ? AppColors.darkBg : AppColors.lightBg,
+      backgroundColor: s.pageBg,
       body: Column(
         children: <Widget>[
           _header(s),
@@ -109,13 +109,7 @@ class _PythonConsolePageState extends State<PythonConsolePage> {
       padding: EdgeInsets.fromLTRB(8, top + 6, 14, 10),
       child: Row(
         children: <Widget>[
-          GlassIconButton(
-            icon: Icons.arrow_back_ios_new_rounded,
-            tooltip: '返回',
-            size: 38,
-            iconSize: 19,
-            onTap: () => Navigator.of(context).maybePop(),
-          ),
+          BackButton(onPressed: () => Navigator.of(context).maybePop()),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -138,20 +132,29 @@ class _PythonConsolePageState extends State<PythonConsolePage> {
   Widget _statusCard(AppSurface s, PythonService py) {
     final bool ok = py.available;
 
+    final Color tint = ok ? AppColors.success : AppColors.danger;
     return SurfaceCard(
-      color: (ok ? AppColors.success : AppColors.danger)
-          .withValues(alpha: 0.09),
-      borderColor: (ok ? AppColors.success : AppColors.danger)
-          .withValues(alpha: 0.28),
+      radius: AppRadius.card,
+      color: tint.withValues(alpha: 0.09),
+      borderColor: tint.withValues(alpha: 0.28),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Icon(
-            ok ? Icons.check_circle_rounded : Icons.error_outline_rounded,
-            size: 18,
-            color: ok ? AppColors.success : AppColors.danger,
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: tint.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(AppRadius.code),
+            ),
+            child: Icon(
+              ok ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+              size: 18,
+              color: tint,
+            ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 11),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -159,19 +162,18 @@ class _PythonConsolePageState extends State<PythonConsolePage> {
                 Text(
                   ok ? '解释器可用' : '解释器不可用',
                   style: AppFonts.body(
-                    size: 13.5,
+                    size: 14.5,
                     weight: FontWeight.w600,
                     color: s.text,
                     height: 1.3,
                   ),
                 ),
-                const SizedBox(height: 3),
+                const SizedBox(height: 2),
                 Text(
                   ok
                       ? (py.version ?? '(已就绪)')
-                      : (py.lastError ??
-                          '还没探测到。改一下代码点运行，结果会显示在下面。'),
-                  style: AppFonts.code(size: 11, color: s.muted),
+                      : (py.lastError ?? '还没探测到。改一下代码点运行，结果会显示在下面。'),
+                  style: AppFonts.code(size: 11.5, color: s.muted),
                 ),
                 if (ok) ...<Widget>[
                   const SizedBox(height: 3),
@@ -179,8 +181,11 @@ class _PythonConsolePageState extends State<PythonConsolePage> {
                     py.packages == null
                         ? '内嵌 CPython · 无需任何配置'
                         : '已装 ${py.packages!.length} 个第三方包',
-                    style:
-                        AppFonts.body(size: 11.5, color: s.muted, height: 1.4),
+                    style: AppFonts.body(
+                      size: 11.5,
+                      color: s.muted,
+                      height: 1.4,
+                    ),
                   ),
                 ],
               ],
@@ -196,7 +201,10 @@ class _PythonConsolePageState extends State<PythonConsolePage> {
       decoration: ShapeDecoration(
         color: s.codeBg,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.code),
+          // 输入区用 field 档：它是「可编辑的框」，和终端页的命令行同档；
+          // card 档留给只读的输出块。
+          borderRadius: BorderRadius.circular(AppRadius.field),
+          side: BorderSide(color: s.border, width: 0.6),
         ),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -225,7 +233,7 @@ class _PythonConsolePageState extends State<PythonConsolePage> {
     return Row(
       children: <Widget>[
         GlassButton(
-          label: _running ? '运行中…' : '运行',
+          label: _running ? '运行中' : '运行',
           icon: _running ? null : Icons.play_arrow_rounded,
           accent: true,
           onTap: _running ? null : _run,
@@ -262,11 +270,11 @@ class _PythonConsolePageState extends State<PythonConsolePage> {
     final String text = r.ok
         ? (r.output.trim().isEmpty ? '（没有输出）' : r.output.trim())
         : '${r.errorType ?? 'Exception'}\n\n${r.error ?? ''}'
-            '${r.output.trim().isEmpty ? '' : '\n\n--- 报错前已产生的输出 ---\n${r.output.trim()}'}';
+              '${r.output.trim().isEmpty ? '' : '\n\n--- 报错前已产生的输出 ---\n${r.output.trim()}'}';
 
     return SurfaceCard(
-      color: tint.withValues(alpha: 0.07),
-      borderColor: tint.withValues(alpha: 0.25),
+      radius: AppRadius.card,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -278,23 +286,36 @@ class _PythonConsolePageState extends State<PythonConsolePage> {
                 color: tint,
               ),
               const SizedBox(width: 7),
-              Text(
-                r.ok ? '输出' : '出错了',
-                style: AppFonts.body(
-                  size: 12.5,
-                  weight: FontWeight.w600,
-                  color: tint,
-                  height: 1.2,
+              Expanded(
+                child: Text(
+                  r.ok ? '输出' : '出错了',
+                  style: AppFonts.body(
+                    size: 14.5,
+                    weight: FontWeight.w600,
+                    color: tint,
+                    height: 1.2,
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          SelectableText(
-            text,
-            // 输出用 SelectableText 而不是 Text：报错信息经常要复制出去搜，
-            // 而 markdown 那边的 RichText 是选不中的（踩过这个坑）。
-            style: AppFonts.code(size: 11.5, color: s.text, height: 1.55),
+          // 输出正文放进 codeBg 的块里：等宽、深一档底、card 圆角 ——
+          // 和终端页的输出区一致。外层卡片只负责"这段属于一次运行"。
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
+            decoration: BoxDecoration(
+              color: s.codeBg,
+              borderRadius: BorderRadius.circular(AppRadius.code),
+              border: Border.all(color: s.border, width: 0.6),
+            ),
+            child: SelectableText(
+              text,
+              // 输出用 SelectableText 而不是 Text：报错信息经常要复制出去搜，
+              // 而 markdown 那边的 RichText 是选不中的（踩过这个坑）。
+              style: AppFonts.code(size: 11.5, color: s.text, height: 1.55),
+            ),
           ),
         ],
       ),

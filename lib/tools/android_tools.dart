@@ -24,19 +24,19 @@ class ShellTool extends AgentTool {
 
   @override
   Map<String, dynamic> get parameters => <String, dynamic>{
-        'type': 'object',
-        'properties': <String, dynamic>{
-          'command': <String, dynamic>{
-            'type': 'string',
-            'description': '要执行的完整 shell 命令',
-          },
-          'purpose': <String, dynamic>{
-            'type': 'string',
-            'description': '一句话说明这条命令做什么，会展示给用户帮助其判断',
-          },
-        },
-        'required': <String>['command'],
-      };
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'command': <String, dynamic>{
+        'type': 'string',
+        'description': '要执行的完整 shell 命令',
+      },
+      'purpose': <String, dynamic>{
+        'type': 'string',
+        'description': '一句话说明这条命令做什么，会展示给用户帮助其判断',
+      },
+    },
+    'required': <String>['command'],
+  };
 
   @override
   RiskAssessment riskFor(Map<String, dynamic> args) =>
@@ -84,43 +84,43 @@ class AppManagerTool extends AgentTool {
 
   @override
   Map<String, dynamic> get parameters => <String, dynamic>{
-        'type': 'object',
-        'properties': <String, dynamic>{
-          'action': <String, dynamic>{
-            'type': 'string',
-            'enum': <String>[
-              'list',
-              'info',
-              'path',
-              'clear',
-              'uninstall',
-              'disable',
-              'enable',
-              'force_stop',
-              'install',
-            ],
-            'description': '要执行的操作',
-          },
-          'package': <String, dynamic>{
-            'type': 'string',
-            'description': '目标包名，如 com.netease.cloudmusic',
-          },
-          'scope': <String, dynamic>{
-            'type': 'string',
-            'enum': <String>['user', 'system', 'all'],
-            'description': 'list 时的范围，默认 user（第三方应用）',
-          },
-          'filter': <String, dynamic>{
-            'type': 'string',
-            'description': 'list 时按关键字过滤包名',
-          },
-          'apk_path': <String, dynamic>{
-            'type': 'string',
-            'description': 'install 时的 apk 文件路径',
-          },
-        },
-        'required': <String>['action'],
-      };
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'action': <String, dynamic>{
+        'type': 'string',
+        'enum': <String>[
+          'list',
+          'info',
+          'path',
+          'clear',
+          'uninstall',
+          'disable',
+          'enable',
+          'force_stop',
+          'install',
+        ],
+        'description': '要执行的操作',
+      },
+      'package': <String, dynamic>{
+        'type': 'string',
+        'description': '目标包名，如 com.netease.cloudmusic',
+      },
+      'scope': <String, dynamic>{
+        'type': 'string',
+        'enum': <String>['user', 'system', 'all'],
+        'description': 'list 时的范围，默认 user（第三方应用）',
+      },
+      'filter': <String, dynamic>{
+        'type': 'string',
+        'description': 'list 时按关键字过滤包名',
+      },
+      'apk_path': <String, dynamic>{
+        'type': 'string',
+        'description': 'install 时的 apk 文件路径',
+      },
+    },
+    'required': <String>['action'],
+  };
 
   @override
   RiskAssessment riskFor(Map<String, dynamic> args) {
@@ -250,51 +250,67 @@ class FileTool extends AgentTool {
       'list（列目录）、read（读文件，text 或 base64）、write（写文件）、'
       'append（追加）、delete（删除，危险）、move、copy、mkdir、'
       'search（按文件名查找）、stat（查看属性）。'
-      '以 shell 身份运行，可访问 /sdcard 与系统目录。';
+      '以 shell 身份运行，可访问 /sdcard 与系统目录。'
+      'read 大文件用 offset / limit **分段读**（1 起算的行号）：'
+      '一次只返回一段，读完一段再读下一段，不要反复整文件 cat。';
 
   @override
   Map<String, dynamic> get parameters => <String, dynamic>{
-        'type': 'object',
-        'properties': <String, dynamic>{
-          'action': <String, dynamic>{
-            'type': 'string',
-            'enum': <String>[
-              'list',
-              'read',
-              'write',
-              'append',
-              'delete',
-              'move',
-              'copy',
-              'mkdir',
-              'search',
-              'stat',
-            ],
-          },
-          'path': <String, dynamic>{
-            'type': 'string',
-            'description': '目标路径，如 /sdcard/Download/a.txt',
-          },
-          'dest': <String, dynamic>{
-            'type': 'string',
-            'description': 'move / copy 的目标路径',
-          },
-          'content': <String, dynamic>{
-            'type': 'string',
-            'description': 'write / append 的文本内容',
-          },
-          'encoding': <String, dynamic>{
-            'type': 'string',
-            'enum': <String>['text', 'base64'],
-            'description': 'read 时返回格式，默认 text',
-          },
-          'pattern': <String, dynamic>{
-            'type': 'string',
-            'description': 'search 的文件名匹配，如 *.log',
-          },
-        },
-        'required': <String>['action', 'path'],
-      };
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'action': <String, dynamic>{
+        'type': 'string',
+        'enum': <String>[
+          'list',
+          'read',
+          'write',
+          'append',
+          'delete',
+          'move',
+          'copy',
+          'mkdir',
+          'search',
+          'stat',
+        ],
+      },
+      'path': <String, dynamic>{
+        'type': 'string',
+        'description': '目标路径，如 /sdcard/Download/a.txt',
+      },
+      'dest': <String, dynamic>{
+        'type': 'string',
+        'description': 'move / copy 的目标路径',
+      },
+      'content': <String, dynamic>{
+        'type': 'string',
+        'description': 'write / append 的文本内容',
+      },
+      'encoding': <String, dynamic>{
+        'type': 'string',
+        'enum': <String>['text', 'base64'],
+        'description': 'read 时返回格式，默认 text',
+      },
+      'pattern': <String, dynamic>{
+        'type': 'string',
+        'description': 'search 的文件名匹配，如 *.log',
+      },
+      // ---- 分段读 ----
+      //
+      // 大文件（日志、CSV、导出的 json）整份 `cat` 只会被 12k 截断，
+      // 而模型拿到"已截断"之后**没有别的路**继续往后读：它只能改用
+      // `run_shell` 拼 `sed`，那一步既多花一轮，又容易把路径拼错。
+      // 给两个数字参数之后，"读第 2001 行到 3000 行"是一次标准调用。
+      'offset': <String, dynamic>{
+        'type': 'integer',
+        'description': 'read 起始行号（1 起算）。默认 1。',
+      },
+      'limit': <String, dynamic>{
+        'type': 'integer',
+        'description': 'read 最多读多少行。默认 0 = 不限（仍受单次输出上限约束）。',
+      },
+    },
+    'required': <String>['action', 'path'],
+  };
 
   @override
   RiskAssessment riskFor(Map<String, dynamic> args) {
@@ -308,9 +324,7 @@ class FileTool extends AgentTool {
         ]);
       case 'write':
       case 'append':
-        return RiskAssessment(RiskLevel.caution, <String>[
-          '写入或覆盖 $path',
-        ]);
+        return RiskAssessment(RiskLevel.caution, <String>['写入或覆盖 $path']);
       case 'move':
       case 'copy':
         return RiskAssessment(RiskLevel.caution, <String>[
@@ -351,7 +365,30 @@ class FileTool extends AgentTool {
         if (args.str('encoding', fallback: 'text') == 'base64') {
           return exec('base64 ${shQuote(path)}');
         }
-        return exec('cat ${shQuote(path)}');
+        // ---- 分段读 ----
+        //
+        // 不传 offset / limit 时行为**完全不变**（整份 cat + 截断），
+        // 所以老的调用方式、老的对话记录都不受影响。
+        //
+        // 传了就只取那一段：`sed -n 'a,bp'` 是 toybox 自带的，不需要
+        // 额外的依赖；行号是整数，和 `shQuote` 过的路径分开拼，没有注入面。
+        final int offset = args.intVal('offset', fallback: 0);
+        final int limit = args.intVal('limit', fallback: 0);
+        if (offset <= 1 && limit <= 0) return exec('cat ${shQuote(path)}');
+
+        final int start = offset <= 0 ? 1 : offset;
+        final int end = limit <= 0 ? start + 1999 : start + limit - 1;
+        // 头一行先自报范围：模型据此判断"后面还有"，也知道下一次该从哪读。
+        // 读空了（start 超过文件长度）会返回一个空段 —— 那本身就是
+        // "文件就这么长"的信号，比一句"已截断"更有用。
+        final String body = await exec(
+          "sed -n '$start,${end}p' ${shQuote(path)}",
+        );
+        if (body.trim().isEmpty) {
+          return '第 $start–$end 行没有内容（文件可能到此为止）。';
+        }
+        return '【第 $start–$end 行】\n$body\n'
+            '（要接着读就 offset=$end+1）';
 
       case 'write':
       case 'append':
@@ -381,7 +418,9 @@ class FileTool extends AgentTool {
 
       case 'search':
         final String pattern = args.str('pattern', fallback: '*');
-        return exec('find ${shQuote(path)} -name ${shQuote(pattern)} 2>/dev/null');
+        return exec(
+          'find ${shQuote(path)} -name ${shQuote(pattern)} 2>/dev/null',
+        );
 
       case 'stat':
         return exec('stat ${shQuote(path)}');
@@ -412,50 +451,47 @@ class SettingsTool extends AgentTool {
 
   @override
   Map<String, dynamic> get parameters => <String, dynamic>{
-        'type': 'object',
-        'properties': <String, dynamic>{
-          'action': <String, dynamic>{
-            'type': 'string',
-            'enum': <String>[
-              'get',
-              'put',
-              'list',
-              'brightness',
-              'volume',
-              'wifi',
-              'data',
-              'airplane',
-              'rotate',
-            ],
-          },
-          'namespace': <String, dynamic>{
-            'type': 'string',
-            'enum': <String>['system', 'secure', 'global'],
-            'description': '设置命名空间，默认 system',
-          },
-          'key': <String, dynamic>{
-            'type': 'string',
-            'description': 'get / put 时的设置项名',
-          },
-          'value': <String, dynamic>{
-            'type': 'string',
-            'description': 'put 时的值',
-          },
-          'level': <String, dynamic>{
-            'type': 'integer',
-            'description': 'brightness 用 0-255；volume 用 0-15',
-          },
-          'enabled': <String, dynamic>{
-            'type': 'boolean',
-            'description': '开关类操作的开关值',
-          },
-          'stream': <String, dynamic>{
-            'type': 'integer',
-            'description': 'volume 的音轨：0 通话 1 系统 2 铃声 3 媒体 4 闹钟',
-          },
-        },
-        'required': <String>['action'],
-      };
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'action': <String, dynamic>{
+        'type': 'string',
+        'enum': <String>[
+          'get',
+          'put',
+          'list',
+          'brightness',
+          'volume',
+          'wifi',
+          'data',
+          'airplane',
+          'rotate',
+        ],
+      },
+      'namespace': <String, dynamic>{
+        'type': 'string',
+        'enum': <String>['system', 'secure', 'global'],
+        'description': '设置命名空间，默认 system',
+      },
+      'key': <String, dynamic>{
+        'type': 'string',
+        'description': 'get / put 时的设置项名',
+      },
+      'value': <String, dynamic>{'type': 'string', 'description': 'put 时的值'},
+      'level': <String, dynamic>{
+        'type': 'integer',
+        'description': 'brightness 用 0-255；volume 用 0-15',
+      },
+      'enabled': <String, dynamic>{
+        'type': 'boolean',
+        'description': '开关类操作的开关值',
+      },
+      'stream': <String, dynamic>{
+        'type': 'integer',
+        'description': 'volume 的音轨：0 通话 1 系统 2 铃声 3 媒体 4 闹钟',
+      },
+    },
+    'required': <String>['action'],
+  };
 
   @override
   RiskAssessment riskFor(Map<String, dynamic> args) {
@@ -467,9 +503,7 @@ class SettingsTool extends AgentTool {
       case 'wifi':
       case 'data':
       case 'airplane':
-        return RiskAssessment(RiskLevel.caution, <String>[
-          '切换网络开关会中断当前连接',
-        ]);
+        return RiskAssessment(RiskLevel.caution, <String>['切换网络开关会中断当前连接']);
       case 'brightness':
         return RiskAssessment(RiskLevel.caution, <String>['修改屏幕亮度']);
       case 'volume':
@@ -537,10 +571,14 @@ class SettingsTool extends AgentTool {
         return exec('cmd media volume --stream $stream --set $lv');
 
       case 'wifi':
-        return exec('svc wifi ${args.boolVal('enabled') ? 'enable' : 'disable'}');
+        return exec(
+          'svc wifi ${args.boolVal('enabled') ? 'enable' : 'disable'}',
+        );
 
       case 'data':
-        return exec('svc data ${args.boolVal('enabled') ? 'enable' : 'disable'}');
+        return exec(
+          'svc data ${args.boolVal('enabled') ? 'enable' : 'disable'}',
+        );
 
       case 'airplane':
         final bool on = args.boolVal('enabled');
@@ -579,19 +617,19 @@ class CaptureTool extends AgentTool {
 
   @override
   Map<String, dynamic> get parameters => <String, dynamic>{
-        'type': 'object',
-        'properties': <String, dynamic>{
-          'action': <String, dynamic>{
-            'type': 'string',
-            'enum': <String>['screenshot', 'record'],
-          },
-          'duration': <String, dynamic>{
-            'type': 'integer',
-            'description': '录屏时长（秒），默认 10，最长 180',
-          },
-        },
-        'required': <String>['action'],
-      };
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'action': <String, dynamic>{
+        'type': 'string',
+        'enum': <String>['screenshot', 'record'],
+      },
+      'duration': <String, dynamic>{
+        'type': 'integer',
+        'description': '录屏时长（秒），默认 10，最长 180',
+      },
+    },
+    'required': <String>['action'],
+  };
 
   @override
   RiskAssessment riskFor(Map<String, dynamic> args) {

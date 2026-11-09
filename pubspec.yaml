@@ -1,17 +1,10 @@
 name: dsh_agent
-description: "PrivTasker — 手机上的 AI agent：Shizuku 系统能力 + 内嵌 Python + 笔记任务"
+description: "Zeus — 手机上的 AI agent：Shizuku 系统能力 + 内嵌 Python + 笔记任务"
 publish_to: 'none'
 
-# 2.0.0 —— 相对 1.0.0 是能力层面的换代，不是修补：
-# 内嵌 CPython、Termux 连接、笔记与任务、导入导出。
-#
-# 2.1.0 —— 界面整体改成 iOS 系统观感：分组灰底 + 白卡、无水波纹、
-# 去掉 M3 的胶囊选中指示器、iOS 系统绿开关、可切换的字体方案，
-# 以及换成低多边形的照片类启动图标。
-#
-# +21 是 versionCode：Android 用它判断"哪个更新"，**必须单调递增**，
-# 所以不能跟着 versionName 一起重置成 1。
-version: 2.2.0+22
+# versionCode（+131）必须单调递增：Android 用它判断"哪个更新"，
+# 不能跟着 versionName 一起重置。
+version: 3.0.0+1081
 
 environment:
   sdk: ^3.13.3
@@ -20,44 +13,40 @@ dependencies:
   flutter:
     sdk: flutter
 
-  cupertino_icons: ^1.0.8
+  # 密码哈希（SHA-256 + 迭代）。已在依赖图里（transitive），
+  # 提成直接依赖才能 import。
+  crypto: ^3.0.3
 
-  # 网络：调用 DeepSeek / 搜索 API / 视觉 API
-  http: ^1.2.2
+  cupertino_icons: ^1.0.9
+
+  # 网络：调用模型 / 搜索 API / 视觉 API
+  http: ^1.6.0
   # 设置持久化（API key、模型、开关）
-  shared_preferences: ^2.3.2
-  # 应用私有目录，用于存放截图、录屏、插件
-  path_provider: ^2.1.4
-  # 选取本地图片做识图
-  image_picker: ^1.1.2
-  # 选取任意文件发送给模型（文档、日志、代码等）
-  file_selector: ^1.0.3
-  # 内置浏览器。用它做搜索抓取：WebView 是真实浏览器环境
-  # （真 UA、执行 JS、带 Cookie、家用 IP），能绕开服务端抓取被反爬拦掉的问题。
+  shared_preferences: ^2.5.5
+  # 应用私有目录：截图、录屏、插件、主题包
+  path_provider: ^2.1.6
+  # 选图 / 选任意文件发给模型
+  image_picker: ^1.2.4
+  file_selector: ^1.1.0
+  # 图片处理（缩放、压缩、缩略图、生图落盘）
+  image: ^4.12.0
+  # 内置浏览器：真实 WebView 环境，搜索抓取和登录态都靠它
   flutter_inappwebview: ^6.1.5
   # 打开 AI 回复里的链接
-  url_launcher: ^6.3.0
-  # LaTeX 数学公式渲染。选它是因为**纯 Dart、无原生代码**，
-  # 不会引入 AGP/NDK 层面的构建兼容问题。
-  flutter_math_fork: ^0.7.2
-  # 离线 OCR（识图工具的本地方案，不需要额外 API key）
-  google_mlkit_text_recognition: ^0.13.0
-
-  # iOS 26 风格的液态玻璃（导航栏 / 标签栏 / 面板）。
-  #
-  # 选它的理由：
-  # · **零第三方 pubspec 依赖** —— 自带 GLSL fragment shader，纯 Flutter SDK。
-  #   这对本项目很关键：依赖越少，AGP 9 / NDK 那套构建兼容问题就越少
-  #   （已经因为 flutter_inappwebview 的 AGP 9 问题 vendor 过一个包了）。
-  # · MIT，且把上游 liquid_glass_renderer / motor 的许可文本一起带上了。
-  # · Android 上 Impeller 的 Vulkan 和 GLES 两条路径都有优化，不会一开就卡。
-  #
-  # 用的时候有两条硬约束（踩到了会很难查）：
-  # · 必须在 MaterialApp.builder 里垫一层透明 Material，否则文字会出现
-  #   调试用的黄色下划线 —— 这个库是 Material-free 的，不提供 Material 祖先。
-  # · 玻璃要"折射"背后**真实存在的东西**。页面得给一个背景（图片/渐变/纯色），
-  #   否则玻璃看起来是平的、像没生效。
-  liquid_glass_widgets: ^1.8.1
+  url_launcher: ^6.3.2
+  # LaTeX 公式：纯 Dart、无原生代码，不引入 AGP/NDK 兼容问题
+  flutter_math_fork: ^0.7.4
+  # 离线 OCR（识图的本地方案，不需要额外 key）
+  google_mlkit_text_recognition: ^0.13.1
+  # 知识库文档解析：docx/xlsx 本质是 zip + XML（纯 Dart，无原生依赖）
+  archive: ^4.0.7
+  xml: ^6.5.0
+  # Office 预览里的 SVG 图片（PowerPoint / Word 常把图标存成 SVG）
+  flutter_svg: ^2.3.0
+  # iOS 26 风格的液态玻璃控件（导航栏 / 标签栏 / 面板）
+  liquid_glass_widgets: ^1.13.0
+  # 系统动态取色（Material You）
+  dynamic_color: ^1.9.0
 
 dev_dependencies:
   flutter_test:
@@ -68,58 +57,69 @@ dev_dependencies:
 dependency_overrides:
   # 上游 flutter_inappwebview_android 1.1.3 的 android/build.gradle 用了
   # AGP 9 已移除的 getDefaultProguardFile('proguard-android.txt')，会直接导致
-  # 构建失败。6.1.5 已是最新稳定版，没有兼容 AGP 9 的版本可用，
-  # 而本项目的构建链沿用 pj1 已验证的 AGP 9.1.0，所以把插件 vendor 到
-  # third_party/ 并打了补丁。详见 third_party/flutter_inappwebview_android/VENDORED.md
+  # 构建失败。1.1.3 已是最新稳定版，没有兼容 AGP 9 的版本可用，而本项目的
+  # 构建链沿用已钉住的 AGP 9.1.0，所以把插件 vendor 到 third_party/ 并打补丁。
+  # 详见 third_party/flutter_inappwebview_android/VENDORED.md
   flutter_inappwebview_android:
     path: third_party/flutter_inappwebview_android
+
+  # jni 1.1.x 要求更新的 AGP / NDK；钉在 1.0.3，和已验证的构建链一致。
+  jni_flutter: 1.0.3
 
 flutter:
   uses-material-design: true
 
+  assets:
+    # 字体目录也当普通资源声明一次：`fonts:` 只负责**注册**字体族，
+    # 而预览出图（test/preview_fonts.dart）要用 rootBundle 直接读
+    # `assets/fonts/CJK-subset.ttf` / `Mono.ttf` —— 那两份只在 assets 里
+    # 声明过才读得到。少了它，测试里所有中文会渲染成空心方块。
+    - assets/fonts/
+    - assets/icon/
+    - assets/plugins/
+    - assets/termux/
+    - assets/tools/
+    - assets/pptx_viewer/
+    # Agent.md 的推荐模板：设置 → Agent.md → 「填入推荐模板」读它。
+    - assets/agent_md_template.md
+
+  # ---- 界面字体：Inter ----
+  #
+  # 从 `Inter.ttc`（Inter 4.1）里抽出四个**静态字面**打进 APK：
+  # 400 / 500 / 600 / 700，约 1.6 MB。
+  #
+  # ## 为什么抽静态字面，而不是直接打包 ttc
+  #
+  #  · `Inter.ttc` 是 13 MB 的**字体集合**（36 个字面，还混着
+  #    Display / Italic 两套变体）—— 全打进去 APK 直接胖一圈，
+  #    而界面只用得到四档字重；
+  #  · Flutter **不支持 ttc**：`fonts:` 只认单个 sfnt 文件。
+  #
+  # 用 `tools/extract_ttc.py` 抽出来的（一次一个字面）：
+  #   python tools/extract_ttc.py Inter.ttc --list          # 看索引
+  #   python tools/extract_ttc.py Inter.ttc assets/fonts/Inter-Regular.ttf 0
+  #   python tools/extract_ttc.py Inter.ttc assets/fonts/Inter-Medium.ttf 10
+  #   python tools/extract_ttc.py Inter.ttc assets/fonts/Inter-SemiBold.ttf 12
+  #   python tools/extract_ttc.py Inter.ttc assets/fonts/Inter-Bold.ttf 14
+  # 换字体时改 `AppFonts.uiFamily` 即可，不需要动这里。
+  #
+  # ## 汉字不在这份字体里
+  #
+  # Inter 只有拉丁、数字、标点（2937 个字形，没有 CJK）。中文靠
+  # `AppFonts.bodyFallback` 里的 `sans-serif` 由系统接住（Android 上是
+  # Noto Sans CJK）。**不要删那条兜底链**，删了中文会变成空心方块。
   fonts:
-    # 英文正文：Times New Roman
-    # 通过 AppTheme 里的 fontFamily + fontFamilyFallback 组合，
-    # 实现「英文走 Times、中文走宋体」的混排效果。
-    - family: TimesNewRoman
+    - family: Inter
       fonts:
-        - asset: assets/fonts/times.ttf
-        - asset: assets/fonts/timesbd.ttf
+        - asset: assets/fonts/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
           weight: 700
-        - asset: assets/fonts/timesi.ttf
-          style: italic
-        - asset: assets/fonts/timesbi.ttf
-          weight: 700
-          style: italic
 
-    # 中文正文：宋体（SimSun）
-    # simsun.ttc 是字体集合，已用 tools/extract_ttc.dart 抽出独立 TTF，
-    # 避免 Flutter 对 .ttc 支持不确定导致中文静默回退成黑体。
-    - family: SimSun
-      fonts:
-        - asset: assets/fonts/simsun.ttf
-
-    # 代码块：Consolas
-    - family: Consolas
-      fonts:
-        - asset: assets/fonts/consola.ttf
-        - asset: assets/fonts/consolab.ttf
-          weight: 700
-        - asset: assets/fonts/consolai.ttf
-          style: italic
-
-    # 苹方（PingFang SC）—— 中英文都用它。
-    #
-    # **这是苹果的系统字体，不能随仓库分发**，所以 `assets/fonts/*.ttf`
-    # 在 .gitignore 里被排除，仓库里只有 assets/fonts/README.md 说明怎么准备。
-    #
-    # 注意：**声明了就必须存在**。Flutter 不支持"可选字体资源" ——
-    # 打包时找不到这个文件，构建会直接失败。这和 Times / 宋体 / Consolas
-    # 是同一个约定，所以不算新增负担，但克隆仓库的人要知道清单里多了这一项。
-    #
-    # 只带 Regular 一个字重：苹方本身有 6 个字重，但每个约 11MB，
-    # 全带上会让 APK 多出 60MB。粗体由 Flutter 合成 —— 对这种黑体，
-    # 合成粗体的观感是可以接受的。
-    - family: PingFang
-      fonts:
-        - asset: assets/fonts/pingfang.ttf
+  # `assets/fonts/` 目录本身**仍然在 assets 里声明**（见上面）：出图测试
+  # （`test/preview_fonts.dart`）要用 `rootBundle` 读那份字体当"系统字体
+  # 的替身"——测试环境没有任何真实字体，不注册的话全是黑方块。

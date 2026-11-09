@@ -33,41 +33,26 @@ class TeenSpacePage extends StatefulWidget {
 class _TeenSpacePageState extends State<TeenSpacePage> {
   static const List<String> _names = <String>['宽松', '标准', '严格'];
 
-  static const List<(String, String, String)> _items = <(String, String, String)>[
-    (
-      '成人 / R 级内容',
-      '包含性、暴力、血腥描写的提问与创作',
-      '严格档下模型会拒绝直接描写，只给概括或建议换个方向。'
-    ),
-    (
-      '政治议题',
-      '时政评论、立场分析、敏感历史事件',
-      '严格档下模型只陈述事实、不给立场判断，也不做预测。'
-    ),
-    (
-      '题目查询',
-      '作业题、考试题、竞赛题',
-      '严格档下模型不直接给最终答案，而是讲思路、指出卡在哪一步。'
-    ),
-  ];
+  static const List<(String, String, String)> _items =
+      <(String, String, String)>[
+        ('成人 / R 级内容', '包含性、暴力、血腥描写的提问与创作', '严格档下模型会拒绝直接描写，只给概括或建议换个方向。'),
+        ('政治议题', '时政评论、立场分析、敏感历史事件', '严格档下模型只陈述事实、不给立场判断，也不做预测。'),
+        ('题目查询', '作业题、考试题、竞赛题', '严格档下模型不直接给最终答案，而是讲思路、指出卡在哪一步。'),
+      ];
 
   @override
   Widget build(BuildContext context) {
     final AppSurface s = AppSurface.of(context);
 
     return Scaffold(
-      backgroundColor: s.isDark ? AppColors.darkBg : AppColors.lightBg,
+      backgroundColor: s.pageBg,
       body: Column(
         children: <Widget>[
           AppHeader(
             title: 'TeenSpace',
             subtitle: '内容尺度的敏感度',
-            leading: GlassIconButton(
-              icon: Icons.arrow_back_ios_new_rounded,
-              tooltip: '返回',
-              size: 38,
-              iconSize: 19,
-              onTap: () => Navigator.of(context).maybePop(),
+            leading: BackButton(
+              onPressed: () => Navigator.of(context).maybePop(),
             ),
           ),
           Expanded(
@@ -80,8 +65,11 @@ class _TeenSpacePageState extends State<TeenSpacePage> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      const Icon(Icons.info_outline_rounded,
-                          size: 18, color: AppColors.warning),
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 18,
+                        color: AppColors.warning,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: mdText(
@@ -90,7 +78,10 @@ class _TeenSpacePageState extends State<TeenSpacePage> {
                           '这三档是写进系统提示词里的**回答尺度**，'
                           '约束的是模型的表达方式，不是拦截内容。',
                           style: AppFonts.body(
-                              size: 13, color: s.text, height: 1.6),
+                            size: 13,
+                            color: s.text,
+                            height: 1.6,
+                          ),
                         ),
                       ),
                     ],
@@ -98,25 +89,46 @@ class _TeenSpacePageState extends State<TeenSpacePage> {
                 ),
                 const SizedBox(height: 16),
 
-                _slider(s, 0, widget.settings.teenAdult,
-                    (int v) => widget.settings.update(() => widget.settings.teenAdult = v)),
+                _slider(
+                  s,
+                  0,
+                  widget.settings.teenAdult,
+                  (int v) => widget.settings.update(
+                    () => widget.settings.teenAdult = v,
+                  ),
+                ),
                 const SizedBox(height: 6),
-                _slider(s, 1, widget.settings.teenPolitics,
-                    (int v) => widget.settings.update(() => widget.settings.teenPolitics = v)),
+                _slider(
+                  s,
+                  1,
+                  widget.settings.teenPolitics,
+                  (int v) => widget.settings.update(
+                    () => widget.settings.teenPolitics = v,
+                  ),
+                ),
                 const SizedBox(height: 6),
-                _slider(s, 2, widget.settings.teenQuery,
-                    (int v) => widget.settings.update(() => widget.settings.teenQuery = v)),
+                _slider(
+                  s,
+                  2,
+                  widget.settings.teenQuery,
+                  (int v) => widget.settings.update(
+                    () => widget.settings.teenQuery = v,
+                  ),
+                ),
 
                 const SizedBox(height: 18),
                 Text(
                   '三档分别是什么意思',
                   style: AppFonts.body(
-                      size: 13.5, weight: FontWeight.w600, color: s.text),
+                    size: 14.5,
+                    weight: FontWeight.w600,
+                    color: s.text,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 for (final (String title, String what, String strict) in _items)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.only(bottom: 8),
                     child: SurfaceCard(
                       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
                       child: Column(
@@ -125,22 +137,29 @@ class _TeenSpacePageState extends State<TeenSpacePage> {
                           Text(
                             title,
                             style: AppFonts.body(
-                                size: 13.5,
-                                weight: FontWeight.w600,
-                                color: s.text,
-                                height: 1.3),
+                              size: 14.5,
+                              weight: FontWeight.w600,
+                              color: s.text,
+                              height: 1.3,
+                            ),
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 5),
                           Text(
                             what,
                             style: AppFonts.body(
-                                size: 12, color: s.muted, height: 1.5),
+                              size: 12.5,
+                              color: s.muted,
+                              height: 1.5,
+                            ),
                           ),
                           const SizedBox(height: 6),
                           Text(
                             strict,
                             style: AppFonts.body(
-                                size: 12, color: s.muted, height: 1.5),
+                              size: 12.5,
+                              color: s.muted,
+                              height: 1.5,
+                            ),
                           ),
                         ],
                       ),
@@ -150,7 +169,7 @@ class _TeenSpacePageState extends State<TeenSpacePage> {
                 const SizedBox(height: 8),
                 Text(
                   '改动立即生效，从下一轮对话开始。',
-                  style: AppFonts.body(size: 12, color: s.muted),
+                  style: AppFonts.body(size: 12.5, color: s.muted),
                 ),
               ],
             ),
@@ -179,25 +198,27 @@ class _TeenSpacePageState extends State<TeenSpacePage> {
                 child: Text(
                   title,
                   style: AppFonts.body(
-                      size: 13.5,
-                      weight: FontWeight.w600,
-                      color: s.text,
-                      height: 1.3),
+                    size: 14.5,
+                    weight: FontWeight.w600,
+                    color: s.text,
+                    height: 1.3,
+                  ),
                 ),
               ),
               Text(
                 _names[value.clamp(0, 2)],
                 style: AppFonts.body(
-                    size: 13,
-                    weight: FontWeight.w600,
-                    color: value == 1 ? s.muted : AppColors.accent),
+                  size: 13,
+                  weight: FontWeight.w600,
+                  color: value == 1 ? s.muted : AppColors.accent,
+                ),
               ),
             ],
           ),
           const SizedBox(height: 2),
           Text(
             what,
-            style: AppFonts.body(size: 11.5, color: s.muted, height: 1.45),
+            style: AppFonts.body(size: 12.5, color: s.muted, height: 1.45),
           ),
           Slider(
             value: value.toDouble().clamp(0, 2),

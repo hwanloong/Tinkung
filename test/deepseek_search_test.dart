@@ -85,14 +85,18 @@ void main() {
 
     test('空 output 不炸', () {
       expect(DeepSeekServerSearch.parseResponse('{}').text, '');
-      expect(DeepSeekServerSearch.parseResponse('{"output": []}').searched, isFalse);
+      expect(
+        DeepSeekServerSearch.parseResponse('{"output": []}').searched,
+        isFalse,
+      );
     });
   });
 
   group('异常输入', () {
     test('返回不是 JSON 时给出明确错误，而不是抛异常', () {
-      final ServerSearchOutcome r =
-          DeepSeekServerSearch.parseResponse('<html>502 Bad Gateway</html>');
+      final ServerSearchOutcome r = DeepSeekServerSearch.parseResponse(
+        '<html>502 Bad Gateway</html>',
+      );
       expect(r.searched, isFalse);
       expect(r.error, contains('合法 JSON'));
     });

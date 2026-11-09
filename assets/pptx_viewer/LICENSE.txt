@@ -1,0 +1,17 @@
+pptx-preview
+============
+
+Version: 1.0.7
+Source:  https://www.npmjs.com/package/pptx-preview
+License: ISC (see package.json bundled alongside)
+
+This directory contains the **unmodified** UMD build distributed on npm
+(`dist/pptx-preview.umd.js`), plus a small HTML wrapper written by this
+project to drive it inside a WebView.
+
+The library's npm package is free to use (including commercial use) per its
+README; its source code is not part of the npm package and is not included
+or modified here.
+
+Bundled third-party runtimes inside the UMD build include JSZip, Lodash,
+tslib, uuid and ECharts/ZRender, each under their own licenses.

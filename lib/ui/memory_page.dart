@@ -45,7 +45,7 @@ class _MemoryPageState extends State<MemoryPage> {
     final List<MemoryItem> items = widget.store.items;
 
     return Scaffold(
-      backgroundColor: s.isDark ? AppColors.darkBg : AppColors.lightBg,
+      backgroundColor: s.pageBg,
       body: Column(
         children: <Widget>[
           AppHeader(
@@ -53,12 +53,8 @@ class _MemoryPageState extends State<MemoryPage> {
             subtitle: items.isEmpty
                 ? '还没有记住任何事'
                 : '${items.length} 条 · 每轮对话都会带上',
-            leading: GlassIconButton(
-              icon: Icons.arrow_back_ios_new_rounded,
-              tooltip: '返回',
-              size: 38,
-              iconSize: 19,
-              onTap: () => Navigator.of(context).maybePop(),
+            leading: BackButton(
+              onPressed: () => Navigator.of(context).maybePop(),
             ),
             actions: <Widget>[
               GlassIconButton(
@@ -85,7 +81,8 @@ class _MemoryPageState extends State<MemoryPage> {
                 ? const EmptyHint(
                     icon: Icons.psychology_outlined,
                     title: '还没有记忆',
-                    desc: '聊天时 agent 会自己判断哪些是"会长期有效的事实"并记下来，'
+                    desc:
+                        '聊天时 agent 会自己判断哪些是"会长期有效的事实"并记下来，'
                         '比如你住在哪、习惯用什么工具。\n'
                         '你也可以点右上角手动加一条。',
                   )
@@ -103,7 +100,7 @@ class _MemoryPageState extends State<MemoryPage> {
 
   Widget _tile(AppSurface s, MemoryItem m) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 9),
+      padding: const EdgeInsets.only(bottom: 8),
       child: SurfaceCard(
         padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
         child: Row(
@@ -116,12 +113,19 @@ class _MemoryPageState extends State<MemoryPage> {
                   Text(
                     m.text,
                     style: AppFonts.body(
-                        size: 13.5, color: s.text, height: 1.5),
+                      size: 13,
+                      color: s.text,
+                      height: 1.5,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     _fmtDate(m.createdAt),
-                    style: AppFonts.body(size: 11, color: s.muted, height: 1.3),
+                    style: AppFonts.body(
+                      size: 12.5,
+                      color: s.muted,
+                      height: 1.3,
+                    ),
                   ),
                 ],
               ),
@@ -158,9 +162,7 @@ class _MemoryPageState extends State<MemoryPage> {
           maxLines: 3,
           minLines: 1,
           style: AppFonts.body(size: 14),
-          decoration: const InputDecoration(
-            hintText: '比如：用户住在杭州',
-          ),
+          decoration: const InputDecoration(hintText: '比如：用户住在杭州'),
         ),
         actions: <Widget>[
           TextButton(
@@ -182,8 +184,7 @@ class _MemoryPageState extends State<MemoryPage> {
     if (err != null) {
       // 失败原因（太长、超上限）必须说出来。沉默着不保存，
       // 用户只会以为应用坏了。
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(err)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
     }
   }
 
@@ -193,8 +194,11 @@ class _MemoryPageState extends State<MemoryPage> {
       context: context,
       builder: (BuildContext ctx) => AlertDialog(
         title: const Text('清空全部记忆？'),
-        content: mdText('$n 条记忆会被永久删除，**没有回收站**。\n'
-            '这不会影响笔记和对话记录。', style: AppFonts.body(size: 14)),
+        content: mdText(
+          '$n 条记忆会被永久删除，**没有回收站**。\n'
+          '这不会影响笔记和对话记录。',
+          style: AppFonts.body(size: 14),
+        ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -202,7 +206,7 @@ class _MemoryPageState extends State<MemoryPage> {
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('清空', style: TextStyle(color: AppColors.danger)),
+            child: Text('清空', style: TextStyle(color: AppColors.danger)),
           ),
         ],
       ),

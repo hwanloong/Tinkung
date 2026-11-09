@@ -10,8 +10,9 @@ void main() {
   group('只读命令判为 safe', () {
     test('query 里带引号的管道符不会把命令切错', () {
       // 这正是预览图里那条命令：grep -E 'level|status' 的 | 在引号内
-      final RiskAssessment r =
-          RiskClassifier.assessShell("dumpsys battery | grep -E 'level|status'");
+      final RiskAssessment r = RiskClassifier.assessShell(
+        "dumpsys battery | grep -E 'level|status'",
+      );
       expect(r.level, RiskLevel.safe);
     });
 
@@ -26,8 +27,11 @@ void main() {
         'pm list packages | grep netease',
       ];
       for (final String c in cmds) {
-        expect(RiskClassifier.assessShell(c).level, RiskLevel.safe,
-            reason: '应判为 safe：$c');
+        expect(
+          RiskClassifier.assessShell(c).level,
+          RiskLevel.safe,
+          reason: '应判为 safe：$c',
+        );
       }
     });
   });
@@ -44,14 +48,18 @@ void main() {
         'reboot',
       ];
       for (final String c in cmds) {
-        expect(RiskClassifier.assessShell(c).level, RiskLevel.dangerous,
-            reason: '应判为 dangerous：$c');
+        expect(
+          RiskClassifier.assessShell(c).level,
+          RiskLevel.dangerous,
+          reason: '应判为 dangerous：$c',
+        );
       }
     });
 
     test('危险命令的每条理由都要说清楚，供弹窗展示', () {
-      final RiskAssessment r =
-          RiskClassifier.assessShell('pm clear com.netease.cloudmusic');
+      final RiskAssessment r = RiskClassifier.assessShell(
+        'pm clear com.netease.cloudmusic',
+      );
       expect(r.reasons, isNotEmpty);
       expect(r.isDangerous, isTrue);
     });
@@ -59,42 +67,54 @@ void main() {
 
   group('多段命令取最高风险', () {
     test('前段只读 + 后段删除 ⇒ dangerous', () {
-      final RiskAssessment r = RiskClassifier.assessShell('ls /sdcard; rm -rf /sdcard/x');
+      final RiskAssessment r = RiskClassifier.assessShell(
+        'ls /sdcard; rm -rf /sdcard/x',
+      );
       expect(r.level, RiskLevel.dangerous);
     });
 
     test('用 && 连接时同样取最高', () {
-      final RiskAssessment r =
-          RiskClassifier.assessShell('ls /sdcard && rm -rf /sdcard/x');
+      final RiskAssessment r = RiskClassifier.assessShell(
+        'ls /sdcard && rm -rf /sdcard/x',
+      );
       expect(r.level, RiskLevel.dangerous);
     });
 
     test('各段都只读时整体仍为 safe', () {
-      final RiskAssessment r =
-          RiskClassifier.assessShell('df -h | grep data');
+      final RiskAssessment r = RiskClassifier.assessShell('df -h | grep data');
       expect(r.level, RiskLevel.safe);
     });
   });
 
   group('fail-safe：认不出来的一律要确认', () {
     test('未知命令不是 safe', () {
-      final RiskAssessment r = RiskClassifier.assessShell('some_unknown_tool --do-things');
+      final RiskAssessment r = RiskClassifier.assessShell(
+        'some_unknown_tool --do-things',
+      );
       expect(r.level, isNot(RiskLevel.safe));
       expect(r.level.needsConfirm, isTrue);
     });
 
     test('命令替换与输出重定向都不算只读', () {
-      expect(RiskClassifier.assessShell('cat \$(ls)').level,
-          isNot(RiskLevel.safe));
-      expect(RiskClassifier.assessShell('echo hi > /sdcard/a.txt').level,
-          isNot(RiskLevel.safe));
+      expect(
+        RiskClassifier.assessShell('cat \$(ls)').level,
+        isNot(RiskLevel.safe),
+      );
+      expect(
+        RiskClassifier.assessShell('echo hi > /sdcard/a.txt').level,
+        isNot(RiskLevel.safe),
+      );
     });
 
     test('xargs / find -delete 不放过', () {
-      expect(RiskClassifier.assessShell('ls | xargs rm').level,
-          isNot(RiskLevel.safe));
-      expect(RiskClassifier.assessShell('find /sdcard -name "*.tmp" -delete').level,
-          isNot(RiskLevel.safe));
+      expect(
+        RiskClassifier.assessShell('ls | xargs rm').level,
+        isNot(RiskLevel.safe),
+      );
+      expect(
+        RiskClassifier.assessShell('find /sdcard -name "*.tmp" -delete').level,
+        isNot(RiskLevel.safe),
+      );
     });
 
     test('空命令给 caution 而不是 safe', () {
@@ -104,8 +124,9 @@ void main() {
 
   group('引号感知切分', () {
     test('引号内的分号不切分', () {
-      final List<String> segs =
-          RiskClassifier.splitSegments("grep -E 'level;status' /x");
+      final List<String> segs = RiskClassifier.splitSegments(
+        "grep -E 'level;status' /x",
+      );
       expect(segs.length, 1);
     });
 

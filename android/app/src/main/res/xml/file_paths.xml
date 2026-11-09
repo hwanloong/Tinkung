@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider 的可分享路径。
+
+  ## 为什么必须有这个文件
+
+  Android 7（API 24）起**禁止**把 `file://` 形式的 URI 交给别的应用 ——
+  会直接抛 `FileUriExposedException`，表现就是"点了没反应"或者崩溃。
+  而我们生成的东西（图片、视频）都落在**应用私有目录**里，
+  那个目录别的应用**根本读不到**。
+
+  所以要走 `content://` URI，由 FileProvider 代为授权。少了这个配置，
+  "打开生成的文件"这件事在原理上就不可能成立。
+
+  ## 为什么 path 用 "."（整个目录）
+
+  生成物的实际位置是 `getFilesDir()/…`（workDir 就落在这里），
+  子目录按用途分（`images/`、`videos/`、`screenshots/`…），
+  而且以后还会加。逐个列出来必然漏 —— 一旦某个子目录没列，
+  那里的文件就"打不开"，而且报错不会告诉你是路径没配。
+
+  ## 为什么**不**声明 `<external-path>`（共享存储）
+
+  看起来加上 `<external-path path="." />` 就能打开 `/sdcard` 里的文件，
+  但那是个陷阱：Android 11+ 的分区存储下，应用**没有权限读共享存储里的
+  普通文件**（`READ_EXTERNAL_STORAGE` 自 API 30 起对非媒体文件无效）。
+  于是声明了也没用 —— 文件在、URI 也能生成，但接收方打开时读到的是
+  EACCES，表现是"打开后一片空白"，比直接报错更难查。
+
+  真正可行的做法是 [FileOpenBridge] 里那个：**把文件复制进私有目录**
+  （走 `cache-path`，见下面）再分享。复制这一下同时解决了
+  "读不到"和"分享不出去"两个问题。
+
+  风险是可控的：暴露范围**仅限本应用私有目录**，
+  别的应用要访问仍然必须拿到我们主动发出的那个授权 URI。
+-->
+<paths>
+    <!-- 应用内部 files 目录（workDir 在这里） -->
+    <files-path name="files" path="." />
+    <!-- 缓存目录：截图、临时导出、以及**从外部复制进来的文件** -->
+    <cache-path name="cache" path="." />
+    <!-- 外部私有目录（getExternalFilesDir），部分工具会写到这。
+         注意：这是 /sdcard/Android/data/<包名>/files，
+         **不是**共享存储 /sdcard 本身。 -->
+    <external-files-path name="ext_files" path="." />
+    <!-- 外部缓存目录，同理 -->
+    <external-cache-path name="ext_cache" path="." />
+</paths>

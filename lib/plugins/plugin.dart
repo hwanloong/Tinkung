@@ -34,18 +34,18 @@ class PluginParam {
   String defaultValue;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'name': name,
-        'description': description,
-        'required': required,
-        'defaultValue': defaultValue,
-      };
+    'name': name,
+    'description': description,
+    'required': required,
+    'defaultValue': defaultValue,
+  };
 
   static PluginParam fromJson(Map<String, dynamic> j) => PluginParam(
-        name: j['name']?.toString() ?? '',
-        description: j['description']?.toString() ?? '',
-        required: j['required'] != false,
-        defaultValue: j['defaultValue']?.toString() ?? '',
-      );
+    name: j['name']?.toString() ?? '',
+    description: j['description']?.toString() ?? '',
+    required: j['required'] != false,
+    defaultValue: j['defaultValue']?.toString() ?? '',
+  );
 }
 
 /// 用户自定义插件。
@@ -68,8 +68,8 @@ class CustomPlugin {
     List<PluginParam>? params,
     this.risk = RiskLevel.caution,
     this.enabled = true,
-  })  : headers = headers ?? <String, String>{},
-        params = params ?? <PluginParam>[];
+  }) : headers = headers ?? <String, String>{},
+       params = params ?? <PluginParam>[];
 
   final String id;
 
@@ -91,45 +91,48 @@ class CustomPlugin {
   bool enabled;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'id': id,
-        'name': name,
-        'title': title,
-        'description': description,
-        'kind': kind.name,
-        'template': template,
-        'method': method,
-        'headers': headers,
-        'body': body,
-        'params': params.map((PluginParam p) => p.toJson()).toList(),
-        'risk': risk.name,
-        'enabled': enabled,
-      };
+    'id': id,
+    'name': name,
+    'title': title,
+    'description': description,
+    'kind': kind.name,
+    'template': template,
+    'method': method,
+    'headers': headers,
+    'body': body,
+    'params': params.map((PluginParam p) => p.toJson()).toList(),
+    'risk': risk.name,
+    'enabled': enabled,
+  };
 
   static CustomPlugin fromJson(Map<String, dynamic> j) => CustomPlugin(
-        id: j['id']?.toString() ?? '',
-        name: j['name']?.toString() ?? '',
-        title: j['title']?.toString() ?? '',
-        description: j['description']?.toString() ?? '',
-        kind: PluginKind.values.firstWhere(
-          (PluginKind e) => e.name == j['kind'],
-          orElse: () => PluginKind.shell,
-        ),
-        template: j['template']?.toString() ?? '',
-        method: j['method']?.toString() ?? 'GET',
-        headers: ((j['headers'] as Map?) ?? <String, dynamic>{})
-            .map((dynamic k, dynamic v) =>
-                MapEntry<String, String>(k.toString(), v.toString())),
-        body: j['body']?.toString() ?? '',
-        params: ((j['params'] as List<dynamic>?) ?? <dynamic>[])
-            .map((dynamic e) =>
-                PluginParam.fromJson(Map<String, dynamic>.from(e as Map)))
-            .toList(),
-        risk: RiskLevel.values.firstWhere(
-          (RiskLevel e) => e.name == j['risk'],
-          orElse: () => RiskLevel.caution,
-        ),
-        enabled: j['enabled'] != false,
-      );
+    id: j['id']?.toString() ?? '',
+    name: j['name']?.toString() ?? '',
+    title: j['title']?.toString() ?? '',
+    description: j['description']?.toString() ?? '',
+    kind: PluginKind.values.firstWhere(
+      (PluginKind e) => e.name == j['kind'],
+      orElse: () => PluginKind.shell,
+    ),
+    template: j['template']?.toString() ?? '',
+    method: j['method']?.toString() ?? 'GET',
+    headers: ((j['headers'] as Map?) ?? <String, dynamic>{}).map(
+      (dynamic k, dynamic v) =>
+          MapEntry<String, String>(k.toString(), v.toString()),
+    ),
+    body: j['body']?.toString() ?? '',
+    params: ((j['params'] as List<dynamic>?) ?? <dynamic>[])
+        .map(
+          (dynamic e) =>
+              PluginParam.fromJson(Map<String, dynamic>.from(e as Map)),
+        )
+        .toList(),
+    risk: RiskLevel.values.firstWhere(
+      (RiskLevel e) => e.name == j['risk'],
+      orElse: () => RiskLevel.caution,
+    ),
+    enabled: j['enabled'] != false,
+  );
 }
 
 /// 校验插件定义，返回错误信息；null 表示通过。
@@ -164,8 +167,9 @@ String renderTemplate(
     final dynamic raw = args[p.name];
     final String value =
         raw?.toString() ?? (p.defaultValue.isNotEmpty ? p.defaultValue : '');
-    final String replacement =
-        shellEscape ? shQuote(value) : Uri.encodeComponent(value);
+    final String replacement = shellEscape
+        ? shQuote(value)
+        : Uri.encodeComponent(value);
     out = out.replaceAll('{{${p.name}}}', replacement);
     // 同时支持 {{ name }} 这种带空格的写法
     out = out.replaceAll('{{ ${p.name} }}', replacement);
@@ -183,38 +187,43 @@ class PluginTool extends AgentTool {
   String get name => plugin.name;
 
   @override
-  String get title =>
-      plugin.title.trim().isEmpty ? plugin.name : plugin.title;
+  String get title => plugin.title.trim().isEmpty ? plugin.name : plugin.title;
 
   @override
   String get description {
-    final String base =
-        plugin.description.trim().isEmpty ? '自定义插件' : plugin.description.trim();
+    final String base = plugin.description.trim().isEmpty
+        ? '自定义插件'
+        : plugin.description.trim();
     return '$base（自定义插件，类型：${plugin.kind.name}）';
   }
 
   @override
   Map<String, dynamic> get parameters => <String, dynamic>{
-        'type': 'object',
-        'properties': <String, dynamic>{
-          for (final PluginParam p in plugin.params)
-            p.name: <String, dynamic>{
-              'type': 'string',
-              'description': p.description,
-            },
+    'type': 'object',
+    'properties': <String, dynamic>{
+      for (final PluginParam p in plugin.params)
+        p.name: <String, dynamic>{
+          'type': 'string',
+          'description': p.description,
         },
-        'required': plugin.params
-            .where((PluginParam p) => p.required && p.defaultValue.isEmpty)
-            .map((PluginParam p) => p.name)
-            .toList(),
-      };
+    },
+    'required': plugin.params
+        .where((PluginParam p) => p.required && p.defaultValue.isEmpty)
+        .map((PluginParam p) => p.name)
+        .toList(),
+  };
 
   @override
   RiskAssessment riskFor(Map<String, dynamic> args) {
-    if (plugin.risk == RiskLevel.safe) return RiskAssessment.safe;
-
-    // shell 插件：即使用户标了「安全」，也再跑一遍命令分级器。
-    // 用户对自己写的模板可能判断失误，这里不能盲信声明。
+    // shell 插件：**无论用户标了什么等级**都再跑一遍命令分级器。
+    //
+    // 这里原来第一行是 `if (plugin.risk == RiskLevel.safe) return safe;`，
+    // 于是"安全"标记同时关掉了分级器 —— 一个被标成安全、模板却是
+    // `rm -rf ...` 的插件会**直接执行**。注释写着"不能盲信声明"，
+    // 实现却在最外层盲信了它。
+    //
+    // 现在的规则：分级器给出的是**下限**，用户的标记只能让它更严，
+    // 不能让它更松。
     if (plugin.kind == PluginKind.shell) {
       final String rendered = renderTemplate(
         plugin.template,
@@ -223,60 +232,74 @@ class PluginTool extends AgentTool {
         shellEscape: true,
       );
       final RiskAssessment auto = RiskClassifier.assessShell(rendered);
-      if (auto.level.index > plugin.risk.index) return auto;
-      if (plugin.risk == RiskLevel.caution) {
-        return RiskAssessment(RiskLevel.caution, <String>[
-          '执行自定义插件「$title」的 shell 模板',
-          ...auto.reasons,
-        ]);
-      }
-      return auto;
+      final RiskLevel level = auto.level.index > plugin.risk.index
+          ? auto.level
+          : plugin.risk;
+      if (level == RiskLevel.safe) return RiskAssessment.safe;
+      return RiskAssessment(level, <String>[
+        '执行自定义插件「$title」的 shell 模板',
+        ...auto.reasons,
+      ]);
     }
 
     if (plugin.risk == RiskLevel.dangerous) {
-      return RiskAssessment(RiskLevel.dangerous, <String>[
-        '执行自定义插件「$title」',
-      ]);
+      return RiskAssessment(RiskLevel.dangerous, <String>['执行自定义插件「$title」']);
     }
-    return RiskAssessment(RiskLevel.caution, <String>[
-      '执行自定义插件「$title」',
-    ]);
+    return RiskAssessment(RiskLevel.caution, <String>['执行自定义插件「$title」']);
   }
 
   @override
   String summarize(Map<String, dynamic> args) {
     if (plugin.kind == PluginKind.shell) {
-      return renderTemplate(plugin.template, args, plugin.params,
-          shellEscape: true);
+      return renderTemplate(
+        plugin.template,
+        args,
+        plugin.params,
+        shellEscape: true,
+      );
     }
-    return renderTemplate(plugin.template, args, plugin.params,
-        shellEscape: false);
+    return renderTemplate(
+      plugin.template,
+      args,
+      plugin.params,
+      shellEscape: false,
+    );
   }
 
   @override
   Future<String> run(ToolContext ctx, Map<String, dynamic> args) async {
     if (plugin.kind == PluginKind.shell) {
-      final String cmd = renderTemplate(plugin.template, args, plugin.params,
-          shellEscape: true);
+      final String cmd = renderTemplate(
+        plugin.template,
+        args,
+        plugin.params,
+        shellEscape: true,
+      );
       final r = await ctx.shizuku.exec(cmd, timeoutMs: 30000);
       return 'exit=${r.code}\n${clampOutput(r.output.trim())}';
     }
 
     // HTTP 插件
     try {
-      final String url = renderTemplate(plugin.template, args, plugin.params,
-          shellEscape: false);
+      final String url = renderTemplate(
+        plugin.template,
+        args,
+        plugin.params,
+        shellEscape: false,
+      );
       final Uri? uri = Uri.tryParse(url);
       if (uri == null || !uri.hasScheme) return '错误：URL 不合法 —— $url';
 
       final String renderedBody = plugin.body.isEmpty
           ? ''
-          : renderTemplate(plugin.body, args, plugin.params,
-              shellEscape: false);
+          : renderTemplate(
+              plugin.body,
+              args,
+              plugin.params,
+              shellEscape: false,
+            );
 
-      final Map<String, String> hdrs = <String, String>{
-        ...plugin.headers,
-      };
+      final Map<String, String> hdrs = <String, String>{...plugin.headers};
       if (renderedBody.isNotEmpty &&
           !hdrs.keys.any((String k) => k.toLowerCase() == 'content-type')) {
         hdrs['Content-Type'] = 'application/json';
@@ -328,7 +351,9 @@ class PluginStore extends ChangeNotifier {
       final dynamic data = jsonDecode(await _file.readAsString());
       if (data is List) {
         for (final dynamic e in data) {
-          plugins.add(CustomPlugin.fromJson(Map<String, dynamic>.from(e as Map)));
+          plugins.add(
+            CustomPlugin.fromJson(Map<String, dynamic>.from(e as Map)),
+          );
         }
       }
     } catch (_) {

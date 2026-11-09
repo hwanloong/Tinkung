@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 
 /**
@@ -61,6 +62,47 @@ class AgentService : Service() {
 
     private var currentText: String = "正在执行任务…"
 
+    /**
+     * 唤醒锁。
+     *
+     * ## 为什么常驻必须持有它
+     *
+     * 前台服务只解决"进程别被回收"，**解决不了 CPU 休眠**：屏幕一关，
+     * 系统立刻进 Doze，定时器被压到最长 15 分钟一次 —— 常驻脚本
+     * "每 60 秒跑一次"就变成"每 15 分钟跑一次"，用户看到的是"后台不干活"。
+     *
+     * 微信这类应用能持续收消息，靠的就是"前台服务 + 唤醒锁 + 白名单"三件套。
+     * 这里补上中间那件。
+     *
+     * `PARTIAL_WAKE_LOCK` 只保 CPU、不点亮屏幕，是代价最小的一种；
+     * 仍然要在 `onDestroy` 里释放，否则会拖垮电池。
+     */
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "Zeus:agent",
+            ).apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        } catch (_: Exception) {
+            // 拿不到锁不是致命错误：任务还是能跑，只是休眠时会被拖慢
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+        } catch (_: Exception) {
+        }
+        wakeLock = null
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -76,6 +118,10 @@ class AgentService : Service() {
         // **必须在 5 秒内调用 startForeground**，否则系统会直接杀掉进程
         // 并报 ANR。所以放在 onStartCommand 的最前面。
         startForeground(NOTIFICATION_ID, buildNotification(currentText))
+
+        // 常驻的前提：息屏后 CPU 不能被挂起（Doze 会把定时器压到
+        // 15 分钟一次，"每分钟跑一次"就废了）
+        acquireWakeLock()
 
         // START_STICKY：被系统杀掉后自动重建。
         // 长任务场景下这比"干脆不重启"更符合用户预期。
@@ -134,6 +180,7 @@ class AgentService : Service() {
     }
 
     override fun onDestroy() {
+        releaseWakeLock()
         currentText = ""
         super.onDestroy()
     }

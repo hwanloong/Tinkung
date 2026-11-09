@@ -5,6 +5,9 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
 
+    <!-- 语音输入：输入框旁边的麦克风（系统 SpeechRecognizer 需要它） -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+
     <!-- Termux 连接：声明后才能用 com.termux.RUN_COMMAND 请 Termux 代跑命令。
          光有这行不够，用户还必须在 Termux 里打开 allow-external-apps。 -->
     <uses-permission android:name="com.termux.permission.RUN_COMMAND"/>
@@ -16,6 +19,14 @@
 
     <!-- 文件读写。Android 10 起分区存储生效，写外部存储的旧权限仅对 API<=29 有意义；
          更高的版本走 Shizuku(shell) 落盘，不受分区存储限制。 -->
+    <!-- 工作空间可以切到下载 / Documents 等公共目录。Android 11+ 的
+         分区存储会把这些写入判成 EPERM（Operation not permitted），
+         必须申请「所有文件访问」并在系统设置里由用户手动授予。
+         这是自用工具，不上架 Play，故使用该权限。 -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage"/>
+
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
@@ -37,25 +48,46 @@
          这是特殊权限，需要在设置里单独申请（会跳到系统弹窗）。 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
 
+    <!-- 从应用内安装独立沙箱插件 APK。Android 8+ 需要这个特殊权限；
+         首次点安装时系统会跳到"安装未知应用"开关。 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <!-- 独立沙箱插件提供的签名级命令通道。 -->
+    <uses-permission android:name="com.dsh.privtasker.sandbox.permission.SANDBOX"/>
+
     <!-- 系统级悬浮窗确认框。
          工具很容易把别的应用切到前台（am start、拉起设置页等），
          此时应用内弹窗会被盖住，用户必须先切回来才能确认。
          悬浮窗由系统合成，永远在最上层。属于特殊权限，需用户手动开启。 -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
 
+    <!-- 定位。
+         ## 为什么 agent 应用需要它
+         很多任务天然带位置语义："附近有什么好吃的"、"导航到…"、
+         "今天几点日落"。要么直接需要坐标，要么有坐标之后搜索质量
+         高一个档次。没有权限时系统 API 会**静默**返回 null / 空列表 ——
+         模型只拿到"查不到"，然后开始猜，而用户看不出这是权限问题。
+
+         · FINE   = GPS / 精确（米级）
+         · COARSE = 基站 + WiFi（百米级，省电得多）
+         两个都声明：用户只给"大概位置"时我们仍然能用。
+         只声明 FINE 的话，他选粗略定位就完全没有数据。 -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+
     <application
-        android:label="PrivTasker"
+        android:label="Tinkung"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:largeHeap="true">
+        android:largeHeap="true"
+        android:requestLegacyExternalStorage="true">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""
-            android:theme="@style/LaunchTheme"
+            android:theme="@style/AppTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
@@ -68,6 +100,25 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+
+        <!-- 把**应用私有目录**里的文件授权给别的应用打开。
+             ## 为什么必须有它
+             生成出来的图片、视频都落在私有目录（`getFilesDir()`），
+             而 Android 7 起**禁止**把 `file://` URI 交给外部应用 ——
+             会直接抛 FileUriExposedException。所以"打开自己生成的文件"
+             必须走 `content://` + FileProvider 授权。
+             没有了这个 provider，这件事在原理上就做不到。
+             authorities 用 `${applicationId}.fileprovider`，
+             和 Dart 侧 `OpenFile` 里拼的字符串必须一致。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- Shizuku 的 ContentProvider：负责把 binder 的权限授予本应用。
              authorities 必须用它约定的 "${applicationId}.shizuku" 形式。
@@ -92,6 +143,23 @@
             android:exported="false"
             android:foregroundServiceType="dataSync"
             android:stopWithTask="false"/>
+
+        <!-- 手机控制通道：读控件树、语义点击、连续手势。
+             系统绑定这个服务前会校验 BIND_ACCESSIBILITY_SERVICE 权限，
+             用户必须手动在「设置 → 无障碍」里打开。 -->
+        <service
+            android:name=".AgentAccessibilityService"
+            android:exported="true"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config"/>
+        </service>
+
     </application>
 
     <queries>
@@ -102,5 +170,12 @@
         <!-- Android 11+ 的包可见性：不声明的话 getPackageInfo("com.termux")
              会直接抛 NameNotFoundException，我们就"看不到"Termux 装没装。 -->
         <package android:name="com.termux"/>
+        <package android:name="com.dsh.privtasker.sandbox"/>
+        <package android:name="com.android.virtualization.terminal"/>
+        <!-- 语音输入：Android 11+ 需要显式声明才能看到系统识别服务，
+             否则 SpeechRecognizer.isRecognitionAvailable 会被判成 false -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
+        </intent>
     </queries>
 </manifest>

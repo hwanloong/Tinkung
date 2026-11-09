@@ -5,6 +5,8 @@ import '../core/models.dart';
 import '../plugins/plugin.dart';
 import '../theme/app_theme.dart';
 import '../theme/glass.dart';
+import 'ios_switch.dart';
+import 'widgets.dart';
 
 Future<void> showPluginsSheet(
   BuildContext context, {
@@ -14,10 +16,8 @@ Future<void> showPluginsSheet(
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    builder: (BuildContext ctx) => _PluginsSheet(
-      store: store,
-      builtinNames: builtinNames,
-    ),
+    builder: (BuildContext ctx) =>
+        _PluginsSheet(store: store, builtinNames: builtinNames),
   );
 }
 
@@ -55,7 +55,8 @@ class _PluginsSheetState extends State<_PluginsSheet> {
 
     return Container(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.85,
+        // 让出状态栏：内容变长时标题会和时间/电量叠在一起。
+        maxHeight: sheetMaxHeight(context, 0.85),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -69,7 +70,7 @@ class _PluginsSheetState extends State<_PluginsSheet> {
                   height: 4,
                   decoration: BoxDecoration(
                     color: s.border,
-                    borderRadius: BorderRadius.circular(2),
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
                   ),
                 ),
                 const SizedBox(height: 14),
@@ -93,7 +94,9 @@ class _PluginsSheetState extends State<_PluginsSheet> {
                       accent: true,
                       fontSize: 13,
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 13, vertical: 8),
+                        horizontal: 13,
+                        vertical: 8,
+                      ),
                       onTap: () => _openEditor(null),
                     ),
                     const SizedBox(width: 14),
@@ -112,8 +115,11 @@ class _PluginsSheetState extends State<_PluginsSheet> {
                     '插件让你不写代码就能给 Agent 加工具：声明要哪些参数、'
                     '把这些参数拼成一条 shell 命令或一个 HTTP 请求即可。'
                     '注册后模型会像调用内置工具一样调用它。',
-                    style:
-                        AppFonts.body(size: 12.6, color: s.muted, height: 1.6),
+                    style: AppFonts.body(
+                      size: 12.6,
+                      color: s.muted,
+                      height: 1.6,
+                    ),
                   ),
                 ),
                 if (list.isEmpty)
@@ -142,30 +148,75 @@ class _PluginsSheetState extends State<_PluginsSheet> {
       RiskLevel.caution => AppColors.warning,
       RiskLevel.dangerous => AppColors.danger,
     };
+    final String riskLabel = switch (p.risk) {
+      RiskLevel.safe => '只读',
+      RiskLevel.caution => '需确认',
+      RiskLevel.dangerous => '危险',
+    };
+    // 副信息一行拼完：类型 · 风险 · 参数个数 · 函数名。
+    // 拆成四个 chip 时，一行里最多塞得下两三个，剩下的就被挤没了。
+    final String meta =
+        '$kindLabel · $riskLabel'
+        '${p.params.isNotEmpty ? ' · ${p.params.length} 个参数' : ''}'
+        ' · ${p.name}';
 
     return SurfaceCard(
+      radius: AppRadius.card,
       margin: const EdgeInsets.only(bottom: 9),
-      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+      padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
       onTap: () => _openEditor(p),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Row(
             children: <Widget>[
-              Expanded(
-                child: Text(
-                  p.title.trim().isEmpty ? p.name : p.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppFonts.body(
-                    size: 14.2,
-                    weight: FontWeight.w600,
-                    color: s.text,
-                    height: 1.3,
-                  ),
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppRadius.code),
+                ),
+                child: Icon(
+                  p.kind == PluginKind.shell
+                      ? Icons.terminal_rounded
+                      : Icons.language_rounded,
+                  size: 18,
+                  color: AppColors.accent,
                 ),
               ),
-              Switch(
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      p.title.trim().isEmpty ? p.name : p.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppFonts.body(
+                        size: 14.5,
+                        weight: FontWeight.w600,
+                        color: s.text,
+                        height: 1.3,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      meta,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppFonts.body(
+                        size: 12.5,
+                        color: s.muted,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              IosSwitch(
                 value: p.enabled,
                 onChanged: (bool v) {
                   p.enabled = v;
@@ -174,42 +225,8 @@ class _PluginsSheetState extends State<_PluginsSheet> {
               ),
             ],
           ),
-          const SizedBox(height: 3),
-          Text(
-            p.name,
-            style: AppFonts.code(size: 12, color: s.muted),
-          ),
-          const SizedBox(height: 7),
-          Row(
-            children: <Widget>[
-              GlassChip(label: kindLabel, dense: true, color: AppColors.accent),
-              const SizedBox(width: 6),
-              GlassChip(
-                label: switch (p.risk) {
-                  RiskLevel.safe => '只读',
-                  RiskLevel.caution => '需确认',
-                  RiskLevel.dangerous => '危险',
-                },
-                dense: true,
-                color: riskColor,
-              ),
-              const SizedBox(width: 6),
-              if (p.params.isNotEmpty)
-                GlassChip(
-                  label: '${p.params.length} 个参数',
-                  dense: true,
-                ),
-              const Spacer(),
-              IconButton(
-                icon: Icon(Icons.delete_outline_rounded,
-                    size: 17, color: s.muted),
-                tooltip: '删除',
-                onPressed: () => _confirmDelete(p),
-              ),
-            ],
-          ),
           if (p.template.trim().isNotEmpty) ...<Widget>[
-            const SizedBox(height: 7),
+            const SizedBox(height: 9),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
@@ -225,6 +242,27 @@ class _PluginsSheetState extends State<_PluginsSheet> {
               ),
             ),
           ],
+          // 风险、删除放到底行：风险色是个标签，不该和标题抢第一行；
+          // 删除是低频且不可撤销的操作，离开关远一点更安全。
+          const SizedBox(height: 6),
+          Row(
+            children: <Widget>[
+              GlassChip(label: kindLabel, dense: true, color: AppColors.accent),
+              const SizedBox(width: 6),
+              GlassChip(label: riskLabel, dense: true, color: riskColor),
+              const Spacer(),
+              IconButton(
+                icon: Icon(
+                  Icons.delete_outline_rounded,
+                  size: 17,
+                  color: AppColors.danger,
+                ),
+                tooltip: '删除',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => _confirmDelete(p),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -236,7 +274,11 @@ class _PluginsSheetState extends State<_PluginsSheet> {
       builder: (BuildContext ctx) => AlertDialog(
         title: Text(
           '删除插件？',
-          style: AppFonts.body(size: 16.5, weight: FontWeight.w600, height: 1.3),
+          style: AppFonts.body(
+            size: 16.5,
+            weight: FontWeight.w600,
+            height: 1.3,
+          ),
         ),
         content: Text(
           '将删除「${p.title.trim().isEmpty ? p.name : p.title}」。',
@@ -276,8 +318,9 @@ class _PluginsSheetState extends State<_PluginsSheet> {
 
     if (result == null) return;
 
-    final int idx =
-        widget.store.plugins.indexWhere((CustomPlugin p) => p.id == result.id);
+    final int idx = widget.store.plugins.indexWhere(
+      (CustomPlugin p) => p.id == result.id,
+    );
     if (idx >= 0) {
       widget.store.plugins[idx] = result;
     } else {
@@ -324,9 +367,11 @@ class _PluginEditorState extends State<_PluginEditor> {
     _template = TextEditingController(text: e?.template ?? '');
     _method = TextEditingController(text: e?.method ?? 'GET');
     _headers = TextEditingController(
-      text: (e == null || e.headers.isEmpty) ? '' : e.headers.entries
-          .map((MapEntry<String, String> h) => '"${h.key}": "${h.value}"')
-          .join(',\n'),
+      text: (e == null || e.headers.isEmpty)
+          ? ''
+          : e.headers.entries
+                .map((MapEntry<String, String> h) => '"${h.key}": "${h.value}"')
+                .join(',\n'),
     );
     _body = TextEditingController(text: e?.body ?? '');
     _kind = e?.kind ?? PluginKind.shell;
@@ -364,8 +409,7 @@ class _PluginEditorState extends State<_PluginEditor> {
       enabled: widget.existing?.enabled ?? true,
     );
 
-    final String? err =
-        validatePlugin(p, takenNames: widget.takenNames);
+    final String? err = validatePlugin(p, takenNames: widget.takenNames);
     if (err != null) {
       setState(() => _error = err);
       return;
@@ -379,8 +423,9 @@ class _PluginEditorState extends State<_PluginEditor> {
     if (raw.isEmpty) return <String, String>{};
     final Map<String, String> out = <String, String>{};
     // 容忍用户写成 `"A": "b", "C": "d"` 这种片段
-    for (final RegExpMatch m
-        in RegExp(r'"([^"]+)"\s*:\s*"([^"]*)"').allMatches(raw)) {
+    for (final RegExpMatch m in RegExp(
+      r'"([^"]+)"\s*:\s*"([^"]*)"',
+    ).allMatches(raw)) {
       out[m.group(1)!] = m.group(2)!;
     }
     return out;
@@ -392,8 +437,7 @@ class _PluginEditorState extends State<_PluginEditor> {
     final bool isShell = _kind == PluginKind.shell;
 
     return Scaffold(
-      backgroundColor:
-          s.isDark ? AppColors.darkBg : AppColors.lightBg,
+      backgroundColor: s.pageBg,
       appBar: AppBar(
         leading: IconButton(
           icon: Icon(Icons.close_rounded, color: s.text),
@@ -416,8 +460,10 @@ class _PluginEditorState extends State<_PluginEditor> {
                 label: '保存',
                 accent: true,
                 fontSize: 13.5,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 onTap: _save,
               ),
             ),
@@ -441,14 +487,20 @@ class _PluginEditorState extends State<_PluginEditor> {
               ),
               child: Row(
                 children: <Widget>[
-                  const Icon(Icons.error_outline_rounded,
-                      size: 16, color: AppColors.danger),
+                  Icon(
+                    Icons.error_outline_rounded,
+                    size: 16,
+                    color: AppColors.danger,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       _error!,
                       style: AppFonts.body(
-                          size: 12.6, color: AppColors.danger, height: 1.5),
+                        size: 12.6,
+                        color: AppColors.danger,
+                        height: 1.5,
+                      ),
                     ),
                   ),
                 ],
@@ -478,12 +530,7 @@ class _PluginEditorState extends State<_PluginEditor> {
           _input(s, _desc, '读取指定的 Android 系统属性值', maxLines: 3),
           const SizedBox(height: 14),
 
-          _label(
-            s,
-            isShell
-                ? '命令模板（用 {{参数名}} 占位）'
-                : 'URL 模板（用 {{参数名}} 占位）',
-          ),
+          _label(s, isShell ? '命令模板（用 {{参数名}} 占位）' : 'URL 模板（用 {{参数名}} 占位）'),
           _input(
             s,
             _template,
@@ -493,9 +540,7 @@ class _PluginEditorState extends State<_PluginEditor> {
           ),
           const SizedBox(height: 6),
           Text(
-            isShell
-                ? '参数值会被自动加引号转义，不用自己处理引号。'
-                : '参数值会被 URL 编码后填入。',
+            isShell ? '参数值会被自动加引号转义，不用自己处理引号。' : '参数值会被 URL 编码后填入。',
             style: AppFonts.body(size: 11.8, color: s.muted, height: 1.5),
           ),
 
@@ -505,8 +550,13 @@ class _PluginEditorState extends State<_PluginEditor> {
             _input(s, _method, 'GET', mono: true),
             const SizedBox(height: 14),
             _label(s, '请求头（JSON 片段，可留空）'),
-            _input(s, _headers, '"Authorization": "Bearer xxx"',
-                maxLines: 2, mono: true),
+            _input(
+              s,
+              _headers,
+              '"Authorization": "Bearer xxx"',
+              maxLines: 2,
+              mono: true,
+            ),
             const SizedBox(height: 14),
             _label(s, '请求体模板（可留空）'),
             _input(s, _body, '{"q": "{{query}}"}', maxLines: 3, mono: true),
@@ -520,8 +570,10 @@ class _PluginEditorState extends State<_PluginEditor> {
                 label: '添加参数',
                 icon: Icons.add_rounded,
                 fontSize: 12.5,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 7,
+                ),
                 onTap: () => setState(() => _params.add(PluginParam(name: ''))),
               ),
             ],
@@ -555,8 +607,11 @@ class _PluginEditorState extends State<_PluginEditor> {
                           ),
                         ),
                         IconButton(
-                          icon: Icon(Icons.close_rounded,
-                              size: 16, color: s.muted),
+                          icon: Icon(
+                            Icons.close_rounded,
+                            size: 16,
+                            color: s.muted,
+                          ),
                           onPressed: () => setState(() => _params.removeAt(i)),
                         ),
                       ],
@@ -611,9 +666,7 @@ class _PluginEditorState extends State<_PluginEditor> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
         decoration: BoxDecoration(
-          color: active
-              ? AppColors.accent.withValues(alpha: 0.14)
-              : s.surface,
+          color: active ? AppColors.accent.withValues(alpha: 0.14) : s.surface,
           borderRadius: BorderRadius.circular(AppRadius.pill),
           border: Border.all(
             color: active ? AppColors.accent : s.border,

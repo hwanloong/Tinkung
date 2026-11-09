@@ -34,24 +34,24 @@ class MemoryTool extends AgentTool {
 
   @override
   Map<String, dynamic> get parameters => <String, dynamic>{
-        'type': 'object',
-        'properties': <String, dynamic>{
-          'action': <String, dynamic>{
-            'type': 'string',
-            'enum': <String>['list', 'add', 'forget', 'clear'],
-            'description': '要做的操作',
-          },
-          'text': <String, dynamic>{
-            'type': 'string',
-            'description': 'add 时要记的那句话（一句话，越短越好）',
-          },
-          'keyword': <String, dynamic>{
-            'type': 'string',
-            'description': 'forget 时的关键词片段，用来定位要删的那条',
-          },
-        },
-        'required': <String>['action'],
-      };
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'action': <String, dynamic>{
+        'type': 'string',
+        'enum': <String>['list', 'add', 'forget', 'clear'],
+        'description': '要做的操作',
+      },
+      'text': <String, dynamic>{
+        'type': 'string',
+        'description': 'add 时要记的那句话（一句话，越短越好）',
+      },
+      'keyword': <String, dynamic>{
+        'type': 'string',
+        'description': 'forget 时的关键词片段，用来定位要删的那条',
+      },
+    },
+    'required': <String>['action'],
+  };
 
   @override
   RiskAssessment riskFor(Map<String, dynamic> args) {
@@ -62,10 +62,9 @@ class MemoryTool extends AgentTool {
       case 'add':
         return RiskAssessment.safe;
       default:
-        return const RiskAssessment(
-          RiskLevel.caution,
-          <String>['会删除记忆条目，且不可撤销'],
-        );
+        return const RiskAssessment(RiskLevel.caution, <String>[
+          '会删除记忆条目，且不可撤销',
+        ]);
     }
   }
 
@@ -91,7 +90,9 @@ class MemoryTool extends AgentTool {
     switch (args.str('action')) {
       case 'list':
         if (store.items.isEmpty) return '（记忆是空的，还没记住任何事）';
-        final StringBuffer sb = StringBuffer('当前记忆（${store.items.length} 条）：\n');
+        final StringBuffer sb = StringBuffer(
+          '当前记忆（${store.items.length} 条）：\n',
+        );
         for (final MemoryItem m in store.items) {
           sb.writeln('- ${m.text}');
         }

@@ -35,6 +35,40 @@ class AppMetrics extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ------------------------------------------------------ 模型缓存（服务端）
+
+  /// 服务端 prompt cache 的命中 / 未命中 token 数。
+  ///
+  /// 和上面的「搜索缓存」**不是一件事**：
+  ///  · 搜索缓存是我们自己在本地跳过一次网络请求；
+  ///  · 模型缓存是服务端把**相同的提示词前缀**缓存下来，命中部分便宜得多。
+  ///
+  /// DeepSeek 在 usage 里回 `prompt_cache_hit_tokens` /
+  /// `prompt_cache_miss_tokens`；部分 OpenAI 兼容服务回
+  /// `prompt_tokens_details.cached_tokens`。没有这些字段的服务端
+  /// （很多中转站）就是"查不出来" —— UI 必须如实说明，而不是显示 0%。
+  int promptCacheHitTokens = 0;
+  int promptCacheMissTokens = 0;
+
+  /// 有没有拿到过服务端的缓存明细。
+  bool promptCacheMeasured = false;
+
+  int get promptCacheTotal => promptCacheHitTokens + promptCacheMissTokens;
+
+  /// 模型缓存命中率；服务端没返回明细时返回 null。
+  double? get promptCacheHitRate =>
+      !promptCacheMeasured || promptCacheTotal == 0
+      ? null
+      : promptCacheHitTokens / promptCacheTotal;
+
+  void recordPromptCache({required int hit, required int miss}) {
+    // 只要服务端**给过**字段就记，哪怕是 0：0% 和"不知道"要分开。
+    promptCacheMeasured = true;
+    promptCacheHitTokens += hit < 0 ? 0 : hit;
+    promptCacheMissTokens += miss < 0 ? 0 : miss;
+    notifyListeners();
+  }
+
   // ---------------------------------------------------------------- Token
 
   int promptTokens = 0;
@@ -92,6 +126,9 @@ class AppMetrics extends ChangeNotifier {
   void reset() {
     searchCacheHits = 0;
     searchCacheMisses = 0;
+    promptCacheHitTokens = 0;
+    promptCacheMissTokens = 0;
+    promptCacheMeasured = false;
     promptTokens = 0;
     completionTokens = 0;
     reasoningTokens = 0;

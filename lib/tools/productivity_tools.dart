@@ -12,10 +12,10 @@ DateTime? parseDueTime(String raw) {
   if (s.isEmpty) return null;
 
   // 相对时间：+2h / 30m / 3d / 1w
-  final RegExpMatch? rel =
-      RegExp(r'^\+\s*(\d+)\s*(m|min|h|hr|hour|d|day|w|week)s?$',
-              caseSensitive: false)
-          .firstMatch(s);
+  final RegExpMatch? rel = RegExp(
+    r'^\+\s*(\d+)\s*(m|min|h|hr|hour|d|day|w|week)s?$',
+    caseSensitive: false,
+  ).firstMatch(s);
   if (rel != null) {
     final int n = int.tryParse(rel.group(1)!) ?? 0;
     final String unit = rel.group(2)!.toLowerCase();
@@ -82,52 +82,53 @@ class NotesTool extends AgentTool {
 
   @override
   Map<String, dynamic> get parameters => <String, dynamic>{
-        'type': 'object',
-        'properties': <String, dynamic>{
-          'action': <String, dynamic>{
-            'type': 'string',
-            'enum': <String>[
-              'list',
-              'search',
-              'read',
-              'create',
-              'update',
-              'delete',
-              'folder',
-            ],
-          },
-          'id': <String, dynamic>{
-            'type': 'string',
-            'description': 'read / update / delete 时的笔记 id（list 结果里能看到）',
-          },
-          'title': <String, dynamic>{'type': 'string', 'description': '标题'},
-          'body': <String, dynamic>{'type': 'string', 'description': '正文内容'},
-          'keyword': <String, dynamic>{
-            'type': 'string',
-            'description': 'search 的关键词',
-          },
-          'tags': <String, dynamic>{
-            'type': 'array',
-            'items': <String, dynamic>{'type': 'string'},
-            'description': '标签',
-          },
-          'folder_id': <String, dynamic>{
-            'type': 'string',
-            'description': 'create / update 时把笔记放进哪个文件夹'
-                '（用 list 结果里的文件夹 id）。留空或传 "" 表示移出到「未归类」。',
-          },
-          'folder_action': <String, dynamic>{
-            'type': 'string',
-            'enum': <String>['create', 'rename', 'delete'],
-            'description': 'action=folder 时的子操作',
-          },
-          'folder_name': <String, dynamic>{
-            'type': 'string',
-            'description': 'action=folder 且 folder_action=create/rename 时的文件夹名',
-          },
-        },
-        'required': <String>['action'],
-      };
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'action': <String, dynamic>{
+        'type': 'string',
+        'enum': <String>[
+          'list',
+          'search',
+          'read',
+          'create',
+          'update',
+          'delete',
+          'folder',
+        ],
+      },
+      'id': <String, dynamic>{
+        'type': 'string',
+        'description': 'read / update / delete 时的笔记 id（list 结果里能看到）',
+      },
+      'title': <String, dynamic>{'type': 'string', 'description': '标题'},
+      'body': <String, dynamic>{'type': 'string', 'description': '正文内容'},
+      'keyword': <String, dynamic>{
+        'type': 'string',
+        'description': 'search 的关键词',
+      },
+      'tags': <String, dynamic>{
+        'type': 'array',
+        'items': <String, dynamic>{'type': 'string'},
+        'description': '标签',
+      },
+      'folder_id': <String, dynamic>{
+        'type': 'string',
+        'description':
+            'create / update 时把笔记放进哪个文件夹'
+            '（用 list 结果里的文件夹 id）。留空或传 "" 表示移出到「未归类」。',
+      },
+      'folder_action': <String, dynamic>{
+        'type': 'string',
+        'enum': <String>['create', 'rename', 'delete'],
+        'description': 'action=folder 时的子操作',
+      },
+      'folder_name': <String, dynamic>{
+        'type': 'string',
+        'description': 'action=folder 且 folder_action=create/rename 时的文件夹名',
+      },
+    },
+    'required': <String>['action'],
+  };
 
   @override
   RiskAssessment riskFor(Map<String, dynamic> args) {
@@ -142,10 +143,9 @@ class NotesTool extends AgentTool {
           '删除文件夹。**里面的笔记不会被删除**，它们会变成「未归类」',
         ]);
       }
-      return RiskAssessment(
-        RiskLevel.caution,
-        <String>['${fa == 'rename' ? '重命名' : '新建'}文件夹：${args.str('folder_name')}'],
-      );
+      return RiskAssessment(RiskLevel.caution, <String>[
+        '${fa == 'rename' ? '重命名' : '新建'}文件夹：${args.str('folder_name')}',
+      ]);
     }
     return RiskAssessment.safe;
   }
@@ -179,23 +179,28 @@ class NotesTool extends AgentTool {
         if (store.folders.isNotEmpty) {
           sb.writeln('文件夹（${store.folders.length} 个）：');
           for (final NoteFolder f in store.folders) {
-            sb.writeln('- [${f.id}] ${f.name}'
-                '（${store.countInFolder(f.id)} 条）');
+            sb.writeln(
+              '- [${f.id}] ${f.name}'
+              '（${store.countInFolder(f.id)} 条）',
+            );
           }
           sb.writeln();
         }
         sb.writeln('未归类 ${store.unfiledCount} 条：');
         // 只列未归类的 —— 归了类的在上面文件夹那栏，重复列会让模型
         // 以为有两条不同的笔记
-        final List<Note> unfiled =
-            store.items.where((Note n) => n.folderId == null).toList();
+        final List<Note> unfiled = store.items
+            .where((Note n) => n.folderId == null)
+            .toList();
         if (unfiled.isEmpty) {
           sb.writeln('（没有）');
         } else {
           for (final Note n in unfiled) {
-            sb.writeln('- [${n.id}] ${n.title}'
-                '${n.tags.isEmpty ? '' : '  #${n.tags.join(' #')}'}'
-                '  （更新于 ${_fmt(n.updatedAt)}）');
+            sb.writeln(
+              '- [${n.id}] ${n.title}'
+              '${n.tags.isEmpty ? '' : '  #${n.tags.join(' #')}'}'
+              '  （更新于 ${_fmt(n.updatedAt)}）',
+            );
           }
         }
         return clampOutput(sb.toString());
@@ -208,8 +213,10 @@ class NotesTool extends AgentTool {
         final StringBuffer sb = StringBuffer('命中 ${hit.length} 条：\n');
         for (final Note n in hit) {
           final NoteFolder? f = store.folderById(n.folderId);
-          sb.writeln('--- [${n.id}] ${n.title}'
-              '${f == null ? '' : '  📁${f.name}'}');
+          sb.writeln(
+            '--- [${n.id}] ${n.title}'
+            '${f == null ? '' : '  📁${f.name}'}',
+          );
           // 带一段正文摘要，模型往往不用再读一次全文
           final String body = n.body.trim();
           if (body.isNotEmpty) {
@@ -346,44 +353,47 @@ class TasksTool extends AgentTool {
 
   @override
   String get description =>
-      '读写用户的任务清单（带执行时间）。action 取值：'
+      '读写用户的**个人待办清单**（带执行时间）。action 取值：'
       'list（列出，可只看未完成）、create（新建）、update（改标题/详情/时间）、'
       'complete（标记完成）、reopen（重新打开）、delete（删除）。'
       'due_at 支持 ISO 8601（2026-09-25T18:00）或相对时间（+2h / 30m / 3d）。'
-      '用户说「提醒我」「明天要做什么」时用它。';
+      '用户说「提醒我」「明天要做什么」时用它。\n'
+      '**这是用户自己要做的计划，不是给你执行的任务队列。**'
+      '不要主动"完成"清单上的事，不要在每轮开头把未完成任务当成你的待办。'
+      '只有用户明确要求时才读写它。';
 
   @override
   Map<String, dynamic> get parameters => <String, dynamic>{
-        'type': 'object',
-        'properties': <String, dynamic>{
-          'action': <String, dynamic>{
-            'type': 'string',
-            'enum': <String>[
-              'list',
-              'create',
-              'update',
-              'complete',
-              'reopen',
-              'delete',
-            ],
-          },
-          'id': <String, dynamic>{
-            'type': 'string',
-            'description': 'update / complete / reopen / delete 时的任务 id',
-          },
-          'title': <String, dynamic>{'type': 'string', 'description': '任务标题'},
-          'detail': <String, dynamic>{'type': 'string', 'description': '补充说明'},
-          'due_at': <String, dynamic>{
-            'type': 'string',
-            'description': '执行时间。ISO 8601 或相对时间（如 +2h、30m、3d）',
-          },
-          'pending_only': <String, dynamic>{
-            'type': 'boolean',
-            'description': 'list 时是否只列未完成的，默认 true',
-          },
-        },
-        'required': <String>['action'],
-      };
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'action': <String, dynamic>{
+        'type': 'string',
+        'enum': <String>[
+          'list',
+          'create',
+          'update',
+          'complete',
+          'reopen',
+          'delete',
+        ],
+      },
+      'id': <String, dynamic>{
+        'type': 'string',
+        'description': 'update / complete / reopen / delete 时的任务 id',
+      },
+      'title': <String, dynamic>{'type': 'string', 'description': '任务标题'},
+      'detail': <String, dynamic>{'type': 'string', 'description': '补充说明'},
+      'due_at': <String, dynamic>{
+        'type': 'string',
+        'description': '执行时间。ISO 8601 或相对时间（如 +2h、30m、3d）',
+      },
+      'pending_only': <String, dynamic>{
+        'type': 'boolean',
+        'description': 'list 时是否只列未完成的，默认 true',
+      },
+    },
+    'required': <String>['action'],
+  };
 
   @override
   RiskAssessment riskFor(Map<String, dynamic> args) {
@@ -413,8 +423,7 @@ class TasksTool extends AgentTool {
     switch (action) {
       case 'list':
         final bool pendingOnly = args.boolVal('pending_only', fallback: true);
-        final List<TaskItem> list =
-            pendingOnly ? store.pending : store.sorted;
+        final List<TaskItem> list = pendingOnly ? store.pending : store.sorted;
         if (list.isEmpty) {
           return pendingOnly ? '（没有未完成的任务）' : '（还没有任何任务）';
         }

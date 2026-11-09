@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      应用的窗口主题（Activity 运行期间）。
+
+      之前 Activity 用的是 LaunchTheme（启动图主题），导航栏是系统默认的
+      不透明色块，压在应用底下 —— 所以小白条区域怎么改 Dart 侧的系统栏颜色
+      都不会沉浸。这里把状态栏和导航栏都设成透明，并允许内容画到导航栏后面。
+
+      ⚠️ 不要再加 `windowTranslucentNavigation`：它在 API 29+ 会直接
+      启用一层系统遮罩（半透明白/黑带），那正是"小白条上下不来"的来源之一。
+    -->
+    <style name="AppTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <!-- 启动 / 首帧之前的窗口底色：跟应用同一套米白，不再先闪一下纯白 -->
+        <item name="android:windowBackground">#FFF8F5EE</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+        <!-- 刘海屏也铺满，不留黑边 -->
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+</resources>

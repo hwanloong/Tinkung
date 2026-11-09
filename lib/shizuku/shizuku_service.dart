@@ -100,8 +100,8 @@ class ShizukuService extends ChangeNotifier {
 
   Future<void> refresh() async {
     try {
-      final Map<dynamic, dynamic>? r =
-          await _method.invokeMethod<Map<dynamic, dynamic>>('state');
+      final Map<dynamic, dynamic>? r = await _method
+          .invokeMethod<Map<dynamic, dynamic>>('state');
       if (r != null) {
         supported = r['supported'] == true;
         running = r['running'] == true;
@@ -146,16 +146,20 @@ class ShizukuService extends ChangeNotifier {
     }
 
     try {
-      final Map<dynamic, dynamic>? r =
-          await _method.invokeMethod<Map<dynamic, dynamic>>('exec', <String, dynamic>{
-        'cmd': command,
-        'binary': binary,
-        'timeoutMs': timeoutMs,
-      });
+      final Map<dynamic, dynamic>? r = await _method
+          .invokeMethod<Map<dynamic, dynamic>>('exec', <String, dynamic>{
+            'cmd': command,
+            'binary': binary,
+            'timeoutMs': timeoutMs,
+          });
 
       if (r == null) {
         return const ExecResult(
-            code: -1, stdout: '', stderr: '空返回', timedOut: false);
+          code: -1,
+          stdout: '',
+          stderr: '空返回',
+          timedOut: false,
+        );
       }
 
       final dynamic rawBytes = r['bytes'];

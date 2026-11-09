@@ -64,6 +64,27 @@ class ActivityOverlay(private val context: Context) {
         main.post { render() }
     }
 
+    /**
+     * **只更新文案**，不改变"该不该显示"。
+     *
+     * ## 为什么必须和 [show] 分开（这是个真 bug）
+     *
+     * Dart 侧每一步都会推一次文案（"正在思考…" → "执行命令…"），
+     * 而它调的是 `updateActivity`。之前那个分支**直接调了 `show()`**，
+     * 于是只要在应用里跑一次任务，浮窗就被"顺手"显示出来了 ——
+     * 而浮窗是给"用户切出去、由外部软件接着操控"那种场景用的：
+     * 应用内本来就有进度（工具卡片、转圈），再压一个浮窗纯属噪音。
+     *
+     * 为什么以前看不出来：没有悬浮窗权限时窗口根本画不出来，
+     * 权限一给，这个 bug 立刻现形。
+     */
+    fun update(text: String) {
+        currentText = text
+        // 没在显示就只是把文案记下来，等切到后台再用最新的那句显示
+        if (!shouldShow) return
+        main.post { render() }
+    }
+
     /** 收起（但记住应该显示，之后可恢复） */
     fun hide() {
         shouldShow = false

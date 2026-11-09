@@ -14,9 +14,14 @@ class NetError {
   ///
   /// 注意区分：域名解析失败、证书错误这类重试也没用，不该重试；
   /// 而连接被中断/重置、超时、断管属于典型的瞬时故障。
+  ///
+  /// 模型接口还有一类**服务端临时故障**：500 / 502 / 503 / 504 / 529
+  /// （过载）、429（限流）。它们不是用户配错了什么，等几秒再发经常就通了，
+  /// 所以也算可重试 —— 但 400 / 401 / 402 / 403 这类是配置或额度问题，
+  /// 重试多少次都一样，绝不能算进来。
   static bool isTransient(Object error) {
     final String s = error.toString().toLowerCase();
-    return s.contains('software caused connection abort') ||
+    if (s.contains('software caused connection abort') ||
         s.contains('econnaborted') ||
         s.contains('connection reset') ||
         s.contains('econnreset') ||
@@ -26,7 +31,21 @@ class NetError {
         s.contains('connection terminated') ||
         s.contains('timeout') ||
         s.contains('timed out') ||
-        s.contains('connection attempt failed');
+        s.contains('connection attempt failed')) {
+      return true;
+    }
+    // 服务端临时故障。带上 "http " 或状态码字段，避免把正文里的数字误判。
+    if (RegExp(r'\b(429|500|502|503|504|529)\b').hasMatch(s) &&
+        (s.contains('http ') || s.contains('status') || s.contains('server'))) {
+      return true;
+    }
+    if (s.contains('overloaded') ||
+        s.contains('service unavailable') ||
+        s.contains('temporarily unavailable') ||
+        s.contains('model is unavailable')) {
+      return true;
+    }
+    return false;
   }
 
   /// 把异常翻译成用户能看懂、并且能据此行动的话。
@@ -79,15 +98,29 @@ class NetError {
     return error.toString();
   }
 
-  /// 对瞬时网络错误做有限次重试（指数退避）。
+  /// 对瞬时网络错误做有限次重试。
+  ///
+  /// [attempts] 是**总尝试次数**（含第一次）。默认 3 次、700ms 指数退避，
+  /// 适合搜索/抓网页这类短请求；模型请求需要更耐心，见 `DeepSeekClient`
+  /// 传的 5 次重试 + 固定 3 秒。
+  ///
+  /// [delay] 是**固定间隔**（不传就按 [baseDelay] 指数退避）。模型接口在
+  /// 上游过载时往往要几秒才恢复，指数退避早期太密（0.7s、1.4s）反而
+  /// 容易连续撞在同一个故障窗口上，所以模型那条路用固定 3 秒。
   ///
   /// [shouldRetry] 可以让调用方追加自己的判断——例如流式响应在
   /// 已经收到部分内容后就不能重试，否则会把内容重复一遍。
+  ///
+  /// [onRetry] 在每次等待前回调（第几次、等多久、什么错误），界面可以
+  /// 用它显示"正在重试"。重试全部失败后**抛出最后一个异常**，由调用方
+  /// 决定怎么告诉用户 —— 这里不再继续循环。
   static Future<T> retry<T>(
     Future<T> Function() action, {
     int attempts = 3,
     Duration baseDelay = const Duration(milliseconds: 700),
+    Duration? delay,
     bool Function(Object error)? shouldRetry,
+    void Function(int attempt, Duration wait, Object error)? onRetry,
   }) async {
     Object? last;
     for (int i = 0; i < attempts; i++) {
@@ -95,10 +128,11 @@ class NetError {
         return await action();
       } catch (e) {
         last = e;
-        final bool canRetry =
-            (shouldRetry?.call(e) ?? true) && isTransient(e);
+        final bool canRetry = (shouldRetry?.call(e) ?? true) && isTransient(e);
         if (!canRetry || i == attempts - 1) rethrow;
-        await Future<void>.delayed(baseDelay * (1 << i));
+        final Duration wait = delay ?? baseDelay * (1 << i);
+        onRetry?.call(i + 1, wait, e);
+        await Future<void>.delayed(wait);
       }
     }
     throw last!;

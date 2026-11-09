@@ -42,7 +42,7 @@ class OverlayConfirm(private val context: Context) {
     private val main = Handler(Looper.getMainLooper())
     private var root: View? = null
     private var timeoutToken: Runnable? = null
-    private var pending: ((Boolean) -> Unit)? = null
+    private var pending: ((String) -> Unit)? = null
 
     companion object {
         /**
@@ -50,6 +50,17 @@ class OverlayConfirm(private val context: Context) {
          * 2 分钟足够用户切回来处理，又不会让界面长时间像卡死。
          */
         private const val AUTO_REJECT_MS = 120_000L
+
+        /**
+         * 回给 Dart 的三个结果。
+         *
+         * 用字符串而不是布尔：确认框上有**三个**出路 —— 拒绝 / 执行这一次 /
+         * 全部运行（之后不再询问）。压成布尔的话"全部运行"就没法表达，
+         * Dart 侧只能靠猜。
+         */
+        const val RESULT_DENY = "deny"
+        const val RESULT_ALLOW = "allow"
+        const val RESULT_ALLOW_ALL = "allowAll"
     }
 
     fun canDraw(): Boolean = try {
@@ -100,18 +111,18 @@ class OverlayConfirm(private val context: Context) {
         command: String,
         reasons: List<String>,
         dangerous: Boolean,
-        onResult: (Boolean) -> Unit,
+        onResult: (String) -> Unit,
     ) {
         // 上一个确认还没结果就再弹一个的话，先把旧的按「拒绝」结掉，
         // 否则 Dart 侧那个 await 会永远挂着。
         pending?.let { old ->
             pending = null
-            main.post { old(false) }
+            main.post { old(RESULT_DENY) }
         }
         dismiss()
 
         if (!canDraw()) {
-            onResult(false)
+            onResult(RESULT_DENY)
             return
         }
 
@@ -233,6 +244,18 @@ class OverlayConfirm(private val context: Context) {
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(12) })
 
+        // 「全部运行」的说明。**必须写在按钮上方**：它是三个按钮里唯一
+        // 一个"会改变之后所有行为"的选项，用户点之前得知道代价。
+        card.addView(TextView(context).apply {
+            text = "「全部运行」会停止询问本次任务里的所有工具，包括危险命令。" +
+                    "发消息的输入框旁边会出现一个感叹号，点它就能随时暂停。"
+            setTextColor(mutedColor)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(12) })
+
         // 按钮行
         val btnRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -251,7 +274,7 @@ class OverlayConfirm(private val context: Context) {
                 setStroke(dp(1), borderColor)
             }
             isClickable = true
-            setOnClickListener { finish(false) }
+            setOnClickListener { finish(RESULT_DENY) }
         }
         btnRow.addView(reject, LinearLayout.LayoutParams(
             0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
@@ -269,7 +292,7 @@ class OverlayConfirm(private val context: Context) {
                 setColor(accent)
             }
             isClickable = true
-            setOnClickListener { finish(true) }
+            setOnClickListener { finish(RESULT_ALLOW) }
         }
         btnRow.addView(confirm, LinearLayout.LayoutParams(
             0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
@@ -278,7 +301,29 @@ class OverlayConfirm(private val context: Context) {
         card.addView(btnRow, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = dp(14) })
+        ).apply { topMargin = dp(12) })
+
+        // 第三个出口：全部运行。单独一行、通栏 —— 它是个"会影响以后"的
+        // 决定，和上面那两个"只影响这一次"的按钮不该长得一样。
+        val allowAll = TextView(context).apply {
+            text = "全部运行（之后不再询问）"
+            gravity = Gravity.CENTER
+            setTextColor(textColor)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14.5f)
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, dp(11), 0, dp(11))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(999).toFloat()
+                setColor(btnBg)
+                setStroke(dp(1), borderColor)
+            }
+            isClickable = true
+            setOnClickListener { finish(RESULT_ALLOW_ALL) }
+        }
+        card.addView(allowAll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(8) })
 
         // 内容可能很长（命令 + 多条理由），套一层限高的滚动容器
         val scroller = ScrollView(context).apply {
@@ -329,23 +374,23 @@ class OverlayConfirm(private val context: Context) {
             root = scrim
 
             // 无人操作时自动拒绝，防止悬浮窗永久占屏
-            val token = Runnable { finish(false) }
+            val token = Runnable { finish(RESULT_DENY) }
             timeoutToken = token
             main.postDelayed(token, AUTO_REJECT_MS)
         } catch (t: Throwable) {
             val cb = pending
             pending = null
             root = null
-            cb?.invoke(false)
+            cb?.invoke(RESULT_DENY)
         }
     }
 
     /** 回传结果并移除悬浮窗。只会生效一次。 */
-    private fun finish(approved: Boolean) {
+    private fun finish(decision: String) {
         val cb = pending ?: return
         pending = null
         dismiss()
-        main.post { cb(approved) }
+        main.post { cb(decision) }
     }
 
     fun dismiss() {

@@ -16,9 +16,9 @@ class Note {
     DateTime? updatedAt,
     this.isMarkdown = false,
     this.folderId,
-  })  : tags = tags ?? <String>[],
-        createdAt = createdAt ?? DateTime.now(),
-        updatedAt = updatedAt ?? DateTime.now();
+  }) : tags = tags ?? <String>[],
+       createdAt = createdAt ?? DateTime.now(),
+       updatedAt = updatedAt ?? DateTime.now();
 
   final String id;
   String title;
@@ -42,62 +42,59 @@ class Note {
   String? folderId;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'id': id,
-        'title': title,
-        'body': body,
-        'tags': tags,
-        'createdAt': createdAt.toIso8601String(),
-        'updatedAt': updatedAt.toIso8601String(),
-        'isMarkdown': isMarkdown,
-        'folderId': folderId,
-      };
+    'id': id,
+    'title': title,
+    'body': body,
+    'tags': tags,
+    'createdAt': createdAt.toIso8601String(),
+    'updatedAt': updatedAt.toIso8601String(),
+    'isMarkdown': isMarkdown,
+    'folderId': folderId,
+  };
 
   static Note fromJson(Map<String, dynamic> j) => Note(
-        id: j['id']?.toString() ?? '',
-        title: j['title']?.toString() ?? '',
-        body: j['body']?.toString() ?? '',
-        tags: ((j['tags'] as List<dynamic>?) ?? <dynamic>[])
-            .map((dynamic e) => e.toString())
-            .toList(),
-        createdAt:
-            DateTime.tryParse(j['createdAt']?.toString() ?? '') ?? DateTime.now(),
-        updatedAt:
-            DateTime.tryParse(j['updatedAt']?.toString() ?? '') ?? DateTime.now(),
-        // 旧数据没有这个字段，默认纯文本 —— 不要默认 Markdown，
-        // 否则以前随手记的内容会被当成 Markdown 渲染得乱七八糟
-        isMarkdown: j['isMarkdown'] == true,
-        // 旧数据没有 folderId → null → 未归类。
-        // **绝不给默认文件夹**：那等于替用户搬了一次家。
-        folderId: (j['folderId']?.toString().trim().isEmpty ?? true)
-            ? null
-            : j['folderId'].toString(),
-      );
+    id: j['id']?.toString() ?? '',
+    title: j['title']?.toString() ?? '',
+    body: j['body']?.toString() ?? '',
+    tags: ((j['tags'] as List<dynamic>?) ?? <dynamic>[])
+        .map((dynamic e) => e.toString())
+        .toList(),
+    createdAt:
+        DateTime.tryParse(j['createdAt']?.toString() ?? '') ?? DateTime.now(),
+    updatedAt:
+        DateTime.tryParse(j['updatedAt']?.toString() ?? '') ?? DateTime.now(),
+    // 旧数据没有这个字段，默认纯文本 —— 不要默认 Markdown，
+    // 否则以前随手记的内容会被当成 Markdown 渲染得乱七八糟
+    isMarkdown: j['isMarkdown'] == true,
+    // 旧数据没有 folderId → null → 未归类。
+    // **绝不给默认文件夹**：那等于替用户搬了一次家。
+    folderId: (j['folderId']?.toString().trim().isEmpty ?? true)
+        ? null
+        : j['folderId'].toString(),
+  );
 }
 
 /// 一个笔记文件夹
 class NoteFolder {
-  NoteFolder({
-    required this.id,
-    required this.name,
-    DateTime? createdAt,
-  }) : createdAt = createdAt ?? DateTime.now();
+  NoteFolder({required this.id, required this.name, DateTime? createdAt})
+    : createdAt = createdAt ?? DateTime.now();
 
   final String id;
   String name;
   final DateTime createdAt;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'id': id,
-        'name': name,
-        'createdAt': createdAt.toIso8601String(),
-      };
+    'id': id,
+    'name': name,
+    'createdAt': createdAt.toIso8601String(),
+  };
 
   static NoteFolder fromJson(Map<String, dynamic> j) => NoteFolder(
-        id: j['id']?.toString() ?? '',
-        name: j['name']?.toString() ?? '未命名',
-        createdAt: DateTime.tryParse(j['createdAt']?.toString() ?? '') ??
-            DateTime.now(),
-      );
+    id: j['id']?.toString() ?? '',
+    name: j['name']?.toString() ?? '未命名',
+    createdAt:
+        DateTime.tryParse(j['createdAt']?.toString() ?? '') ?? DateTime.now(),
+  );
 }
 
 /// 一条任务
@@ -123,32 +120,31 @@ class TaskItem {
   final DateTime createdAt;
   DateTime? completedAt;
 
-  bool get overdue =>
-      !done && dueAt != null && dueAt!.isBefore(DateTime.now());
+  bool get overdue => !done && dueAt != null && dueAt!.isBefore(DateTime.now());
 
   /// 距执行时间还有多久（负数表示已过期）。没有时间要求时返回 null。
   Duration? get remaining => dueAt?.difference(DateTime.now());
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'id': id,
-        'title': title,
-        'detail': detail,
-        'dueAt': dueAt?.toIso8601String(),
-        'done': done,
-        'createdAt': createdAt.toIso8601String(),
-        'completedAt': completedAt?.toIso8601String(),
-      };
+    'id': id,
+    'title': title,
+    'detail': detail,
+    'dueAt': dueAt?.toIso8601String(),
+    'done': done,
+    'createdAt': createdAt.toIso8601String(),
+    'completedAt': completedAt?.toIso8601String(),
+  };
 
   static TaskItem fromJson(Map<String, dynamic> j) => TaskItem(
-        id: j['id']?.toString() ?? '',
-        title: j['title']?.toString() ?? '',
-        detail: j['detail']?.toString() ?? '',
-        dueAt: DateTime.tryParse(j['dueAt']?.toString() ?? ''),
-        done: j['done'] == true,
-        createdAt:
-            DateTime.tryParse(j['createdAt']?.toString() ?? '') ?? DateTime.now(),
-        completedAt: DateTime.tryParse(j['completedAt']?.toString() ?? ''),
-      );
+    id: j['id']?.toString() ?? '',
+    title: j['title']?.toString() ?? '',
+    detail: j['detail']?.toString() ?? '',
+    dueAt: DateTime.tryParse(j['dueAt']?.toString() ?? ''),
+    done: j['done'] == true,
+    createdAt:
+        DateTime.tryParse(j['createdAt']?.toString() ?? '') ?? DateTime.now(),
+    completedAt: DateTime.tryParse(j['completedAt']?.toString() ?? ''),
+  );
 }
 
 /// 通用 JSON 列表存储。
@@ -186,9 +182,7 @@ abstract class _JsonListStore<T> extends ChangeNotifier {
   Future<void> save() async {
     try {
       await _file.parent.create(recursive: true);
-      await _file.writeAsString(
-        jsonEncode(items.map(toJson).toList()),
-      );
+      await _file.writeAsString(jsonEncode(items.map(toJson).toList()));
     } catch (_) {
       // 写失败不致命
     }
@@ -232,8 +226,8 @@ class NoteStore extends _JsonListStore<Note> {
   // 初始化列表里需要拿到那个值。
   // ignore: use_super_parameters
   NoteStore(File file)
-      : _folderFile = File('${file.parent.path}/note_folders.json'),
-        super(file);
+    : _folderFile = File('${file.parent.path}/note_folders.json'),
+      super(file);
 
   final File _folderFile;
 
@@ -249,7 +243,9 @@ class NoteStore extends _JsonListStore<Note> {
         final dynamic data = jsonDecode(await _folderFile.readAsString());
         if (data is List) {
           for (final dynamic e in data) {
-            folders.add(NoteFolder.fromJson(Map<String, dynamic>.from(e as Map)));
+            folders.add(
+              NoteFolder.fromJson(Map<String, dynamic>.from(e as Map)),
+            );
           }
         }
       }
@@ -284,8 +280,7 @@ class NoteStore extends _JsonListStore<Note> {
       items.where((Note n) => n.folderId == folderId).length;
 
   /// 未归类的笔记数。根级"未归类"那一栏显示它。
-  int get unfiledCount =>
-      items.where((Note n) => n.folderId == null).length;
+  int get unfiledCount => items.where((Note n) => n.folderId == null).length;
 
   NoteFolder createFolder(String name) {
     final NoteFolder f = NoteFolder(
@@ -336,11 +331,7 @@ class NoteStore extends _JsonListStore<Note> {
   /// [folderId] 传 null 表示"只列未归类的"；传 `'\u0000all'` 表示不按文件夹筛。
   static const String allFolders = '\u0000all';
 
-  List<Note> filter({
-    String? folderId,
-    String keyword = '',
-    String? tag,
-  }) {
+  List<Note> filter({String? folderId, String keyword = '', String? tag}) {
     Iterable<Note> list = sorted;
 
     if (folderId != allFolders) {
@@ -349,15 +340,18 @@ class NoteStore extends _JsonListStore<Note> {
 
     final String k = keyword.trim().toLowerCase();
     if (k.isNotEmpty) {
-      list = list.where((Note n) =>
-          n.title.toLowerCase().contains(k) ||
-          n.body.toLowerCase().contains(k) ||
-          n.tags.any((String t) => t.toLowerCase().contains(k)));
+      list = list.where(
+        (Note n) =>
+            n.title.toLowerCase().contains(k) ||
+            n.body.toLowerCase().contains(k) ||
+            n.tags.any((String t) => t.toLowerCase().contains(k)),
+      );
     }
 
     if (tag != null && tag.trim().isNotEmpty) {
       list = list.where(
-          (Note n) => n.tags.any((String t) => t.trim() == tag.trim()));
+        (Note n) => n.tags.any((String t) => t.trim() == tag.trim()),
+      );
     }
 
     return list.toList();
@@ -423,10 +417,12 @@ class NoteStore extends _JsonListStore<Note> {
     final String k = keyword.trim().toLowerCase();
     if (k.isEmpty) return sorted;
     return sorted
-        .where((Note n) =>
-            n.title.toLowerCase().contains(k) ||
-            n.body.toLowerCase().contains(k) ||
-            n.tags.any((String t) => t.toLowerCase().contains(k)))
+        .where(
+          (Note n) =>
+              n.title.toLowerCase().contains(k) ||
+              n.body.toLowerCase().contains(k) ||
+              n.tags.any((String t) => t.toLowerCase().contains(k)),
+        )
         .toList();
   }
 }
@@ -461,18 +457,24 @@ class TaskStore extends _JsonListStore<TaskItem> {
   List<TaskItem> get pending => sorted.where((TaskItem t) => !t.done).toList();
 
   /// 已过期且未完成
-  List<TaskItem> get overdue => pending.where((TaskItem t) => t.overdue).toList();
+  List<TaskItem> get overdue =>
+      pending.where((TaskItem t) => t.overdue).toList();
 
   /// 今天之内到期的
   List<TaskItem> get dueToday {
     final DateTime now = DateTime.now();
-    final DateTime end = DateTime(now.year, now.month, now.day)
-        .add(const Duration(days: 1));
+    final DateTime end = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).add(const Duration(days: 1));
     return pending
-        .where((TaskItem t) =>
-            t.dueAt != null &&
-            !t.dueAt!.isBefore(now) &&
-            t.dueAt!.isBefore(end))
+        .where(
+          (TaskItem t) =>
+              t.dueAt != null &&
+              !t.dueAt!.isBefore(now) &&
+              t.dueAt!.isBefore(end),
+        )
         .toList();
   }
 

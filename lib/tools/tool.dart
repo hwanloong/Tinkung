@@ -1,12 +1,44 @@
 import '../core/models.dart';
 import '../core/productivity.dart';
+import '../core/store.dart';
+import '../plugins/plugin.dart';
 import '../shizuku/shizuku_service.dart';
 import 'risk.dart';
 
 /// 工具执行上下文
+/// 派给一个子智能体的任务。
+class SubAgentSpec {
+  const SubAgentSpec({required this.label, required this.task});
+
+  /// 展示用的名字（"查天气""核对数字"），也是结果里的小标题。
+  final String label;
+
+  /// 交给子智能体的完整任务。它**看不到**主对话，所以这里要写全。
+  final String task;
+}
+
+/// 一个子智能体跑完的结果。
+class SubAgentResult {
+  const SubAgentResult({
+    required this.label,
+    required this.ok,
+    required this.answer,
+    this.error = '',
+  });
+
+  final String label;
+  final bool ok;
+
+  /// 子智能体最后一条回答的正文（只回填这个，不回填它的全部中间过程）。
+  final String answer;
+  final String error;
+}
+
 class ToolContext {
   const ToolContext({
+    required this.settings,
     required this.shizuku,
+    required this.conversation,
     required this.workDir,
     required this.searchApiKey,
     required this.visionBaseUrl,
@@ -16,14 +48,28 @@ class ToolContext {
     required this.mainBaseUrl,
     required this.mainModel,
     required this.modelSeesImages,
+    required this.modelGeneratesImages,
+    required this.imageGen,
     required this.searchEngine,
     required this.webSearchMode,
     required this.selfHostedSearchUrl,
     required this.notes,
     required this.tasks,
+    required this.plugins,
+    this.dispatchSubAgents,
   });
 
+  /// 全局设置。模型管理工具需要它来新增/修改/切换档案。
+  final Settings settings;
+
   final ShizukuService shizuku;
+
+  /// **当前这场对话**（可写）。
+  ///
+  /// 给谁用：`mark` 工具 —— 标记是挂在**消息**上的（`ChatMessage.marks`），
+  /// "把刚才那句标黄"这件事没有别的落点。除此之外的工具都不该改它：
+  /// 会话内容属于用户，模型只能通过正常回复去影响它。
+  final Conversation conversation;
 
   /// 应用私有目录：截图、录屏、临时文件都放这里，
   /// 避免污染用户可见的 /sdcard。
@@ -33,6 +79,21 @@ class ToolContext {
   /// 用户说「记一下」「明天提醒我」时，模型应该真的写进去，而不是只回一句话。
   final NoteStore notes;
   final TaskStore tasks;
+
+  /// 自定义插件仓库。
+  ///
+  /// 给 `plugin` 工具用：让 agent 能**看**有哪些插件、也能**改**（新建、
+  /// 改模板、开关、删除）。没有它的时候插件只能靠用户自己在界面里点，
+  /// 而"帮我加一个能查天气的工具"这种话说出来是没人接的。
+  final PluginStore plugins;
+
+  /// **派发子智能体**（multibot 用）。由 [AgentRunner] 注入：它知道怎么
+  /// 用父的模型、工具表和设置起一个新的 runner。
+  ///
+  /// null = 当前上下文不允许再派子智能体 —— 子智能体自己拿到的上下文就是
+  /// null，这是防止"子智能体又派子智能体"无限递归的开关。
+  final Future<List<SubAgentResult>> Function(List<SubAgentSpec> specs)?
+  dispatchSubAgents;
 
   final String searchApiKey;
 
@@ -46,7 +107,26 @@ class ToolContext {
   final String mainApiKey;
   final String mainBaseUrl;
   final String mainModel;
+
+  /// 当前模型**看不看得懂图**（多模态输入）。用户声明，见 ModelProfile.vision。
   final bool modelSeesImages;
+
+  /// 当前模型**画不画得出图**（多模态输出）。
+  ///
+  /// 和 [modelSeesImages] 是两件独立的事，别合并成一个开关：
+  /// 只看得懂图的模型和只会画图的模型都存在。它决定 `generate_image`
+  /// 这个工具**注不注册** —— 不注册比"注册了但一调就报错"好得多，
+  /// 后者会让模型白白浪费一轮。
+  final bool modelGeneratesImages;
+
+  /// **生图专用的那套配置**（地址 / 密钥 / 模型名）。
+  ///
+  /// 和上面三个 `main*` 是**两回事**：对话和生图几乎不会用同一个模型
+  /// （生图模型不能对话、对话模型不能生图），所以生图不能拿 [mainModel]
+  /// 去发请求 —— 那正是之前"点了生图没反应"的原因之一。
+  ///
+  /// null 表示还没配，工具会返回一句能看懂的提示而不是发一个注定失败的请求。
+  final ImageGenConfig? imageGen;
 
   /// 内置浏览器抓取搜索时使用的搜索引擎（bing / duckduckgo / baidu / google）
   final String searchEngine;
@@ -94,6 +174,18 @@ abstract class AgentTool {
   /// 执行并返回给模型看的文本结果
   Future<String> run(ToolContext ctx, Map<String, dynamic> args);
 
+  /// 单次调用的**兜底时限**。默认 10 分钟。
+  ///
+  /// 这不是"给慢工具加时间"的开关，而是"不让一次调用把整场对话挂死"的
+  /// 保险。多数工具内部有自己的超时（shell 120s、HTTP 30s…），但外挂插件、
+  /// 浏览器自动化、生图/生视频的轮询这类没有统一上限 —— 一旦某次调用卡住，
+  /// agent 主循环就停在 `await` 上，用户看到的只是"一直转圈"，连停止按钮
+  /// 都只能掐网络、掐不掉这个 await。
+  ///
+  /// 需要跑更久的工具（长任务、大文件）自己覆盖这个 getter ——
+  /// 默认值存在的意义是"忘了覆盖也不会挂死"。
+  Duration get timeout => const Duration(minutes: 10);
+
   /// 供 UI 展示的命令/操作摘要
   String summarize(Map<String, dynamic> args) => name;
 }
@@ -116,17 +208,27 @@ class ToolRegistry {
     return null;
   }
 
+  /// 按档案白名单裁剪注册表。
+  ///
+  /// 在执行前裁剪而不是在 `run()` 里拒绝：没注册的工具模型根本看不到，
+  /// 不会浪费一轮去调用一个注定失败的函数。
+  void retainWhere(bool Function(AgentTool tool) test) {
+    _tools.removeWhere((AgentTool t) => !test(t));
+  }
+
   /// 转成 OpenAI / DeepSeek 的 tools 字段
   List<Map<String, dynamic>> toApiSchema() {
     return _tools
-        .map((AgentTool t) => <String, dynamic>{
-              'type': 'function',
-              'function': <String, dynamic>{
-                'name': t.name,
-                'description': t.description,
-                'parameters': t.parameters,
-              },
-            })
+        .map(
+          (AgentTool t) => <String, dynamic>{
+            'type': 'function',
+            'function': <String, dynamic>{
+              'name': t.name,
+              'description': t.description,
+              'parameters': t.parameters,
+            },
+          },
+        )
         .toList();
   }
 }
@@ -153,6 +255,29 @@ extension ToolArgs on Map<String, dynamic> {
     if (s == 'true' || s == '1') return true;
     if (s == 'false' || s == '0') return false;
     return fallback;
+  }
+
+  /// 读一个**字符串数组**（单个字符串也收）。
+  ///
+  /// 模型经常把数组写成 `"a,b"` 或者干脆给一个字符串 —— 直接
+  /// `as List` 会抛异常，而那种异常只会变成一句"工具执行失败"。
+  List<String> listVal(String key) {
+    final dynamic v = this[key];
+    if (v is List) {
+      return v
+          .map((dynamic e) => e?.toString().trim() ?? '')
+          .where((String s) => s.isNotEmpty)
+          .toList();
+    }
+    final String s = v?.toString().trim() ?? '';
+    return s.isEmpty ? <String>[] : <String>[s];
+  }
+
+  /// 读一个**对象**（maps only，其它一律当空）。
+  Map<String, dynamic> mapVal(String key) {
+    final dynamic v = this[key];
+    if (v is Map) return Map<String, dynamic>.from(v);
+    return <String, dynamic>{};
   }
 }
 

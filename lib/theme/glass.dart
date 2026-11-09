@@ -1,7 +1,6 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as lg;
 
 import 'app_theme.dart';
 
@@ -38,22 +37,26 @@ Widget mdText(
 
     final String? bold = m.group(1);
     if (bold != null) {
-      spans.add(TextSpan(
-        text: bold,
-        // 封顶 w600：本项目的字重约定就是最高 semibold
-        // （见 README 的「字号与字重」）。再粗一档就压过正文了。
-        style: const TextStyle(fontWeight: FontWeight.w600),
-      ));
+      spans.add(
+        TextSpan(
+          text: bold,
+          // 封顶 w600：本项目的字重约定就是最高 semibold
+          // （见 README 的「字号与字重」）。再粗一档就压过正文了。
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+      );
     } else {
       // 行内代码：等宽、比正文小一号，**不换颜色** ——
       // 换了会在灰字提示里突然冒出一块彩色，反而更乱。
-      spans.add(TextSpan(
-        text: m.group(2),
-        style: AppFonts.code(
-          size: (style.fontSize ?? 13) - 1,
-          color: style.color,
+      spans.add(
+        TextSpan(
+          text: m.group(2),
+          style: AppFonts.code(
+            size: (style.fontSize ?? 13) - 1,
+            color: style.color,
+          ),
         ),
-      ));
+      );
     }
     last = m.end;
   }
@@ -93,44 +96,185 @@ class _GlassLayers {
   final Color onFill;
   final Color shadow;
 
-  /// 玻璃/卡片的填色。
+  /// 卡片 / 控件的填色。
   ///
-  /// **这里是 iOS 化和 Material You 最本质的分界。**
+  /// iOS 的层次**不靠投影**，靠两件事：
+  ///  · 卡片比页面底**亮一档**（`#FFFFFF` 浮在 `#F2F2F7` 上）；
+  ///  · 一条 `#E5E5EA` 的发丝线勾出边界。
   ///
-  /// - M3：无边框，用 `surfaceContainerLow/High` 的**明度差**分层，
-  ///   而且这些色调是由种子色推导的 —— 换个主题色，卡片底色偏紫偏绿。
-  /// - iOS：**一套固定的语义色**。浅色下页面是浅灰（#F2F2F7），
-  ///   卡片是**纯白**（#FFFFFF）；深色下页面纯黑，卡片是 #1C1C1E。
-  ///   层次来自"灰底托白卡"这个对比，不来自明度阶梯。
-  ///
-  /// 所以这里整个换成 [AppSurface] 的固定色，只有强调色跟种子走。
+  /// 所以这里只有填色，没有暖色投影 —— 投影在 iOS 设计语言里只属于
+  /// 真正浮起来的弹层（见 [BlurSurface] 的 floating 分支）。
   static _GlassLayers of(BuildContext context, GlassRole role) {
     final AppSurface s = AppSurface.of(context);
     final bool dark = s.isDark;
 
     final Color fill = switch (role) {
-      // 卡片：iOS 的卡片是**纯白**（浅色）/ 二级灰（深色），
-      // 压在浅灰页面底上 —— 对比清清楚楚。
+      // 卡片：页面底之上的一层。
       GlassRole.card => s.surface,
-      // 控件：按钮、输入框。iOS 的次要按钮是"浅灰填充 + 无边框"，
-      // 用的正是 codeBg 那一档灰（#F2F2F7 / #2C2C2E）。
+      // 控件：按钮、输入框。压过一档的灰 —— "可输入/可点"更靠前。
       GlassRole.control => s.codeBg,
-      // 悬浮层：面板拖到页面上，仍用卡片白，靠投影浮起来。
+      // 悬浮层：面板拖到页面上，仍用卡片那一档，靠投影浮起来。
       GlassRole.floating => s.surface,
     };
 
     return _GlassLayers(
       fill: fill,
       onFill: s.text,
-      // iOS 的分组卡片**几乎没有投影** —— 白卡压在灰底上已经足够分层了。
-      // 再叠投影会显得脏，也偏离 iOS 那种"平"的观感。
-      // 只有悬浮层（面板/弹窗）才给一层像样的投影。
+      // 只给悬浮层留一层中性投影。卡片和控件不需要 ——
+      // 它们靠面板底色和描边就已经分层了，再叠投影就是"每样东西都浮着"，
+      // 整屏看起来发灰、发脏（这正是之前"太浓"的一部分）。
       shadow: dark
-          ? Colors.black
-              .withValues(alpha: role == GlassRole.floating ? 0.55 : 0.0)
-          : const Color(0xFF000000).withValues(
-              alpha: role == GlassRole.floating ? 0.18 : 0.0,
+          ? Colors.black.withValues(
+              alpha: role == GlassRole.floating ? 0.55 : 0.0,
+            )
+          : Colors.black.withValues(
+              alpha: role == GlassRole.floating ? 0.10 : 0.0,
             ),
+    );
+  }
+}
+
+/// **带模糊的玻璃面**（Android 17 / M3 Expressive 语言）。
+///
+/// 这是全项目玻璃材质的唯一实现：
+///  · `BackdropFilter` 做真实背景模糊（滚动内容从底下透出来时是糊的）；
+///  · 半透明的米白填充 + 一条极细的暖色描边 —— 玻璃的边界靠描边，
+///    不靠灰色投影；
+///  · 只有真的浮起来的东西（弹层、面板）才加投影。
+///
+/// 从前这里用的是液态玻璃（折射 + 高光 shader）。用户要求"把液态玻璃
+/// 全部改回带模糊效果的 Android 17 设计语言"：模糊是主体，折射去掉。
+class BlurSurface extends StatelessWidget {
+  const BlurSurface({
+    super.key,
+    required this.child,
+    this.radius = AppRadius.card,
+    this.role = GlassRole.card,
+    this.padding = EdgeInsets.zero,
+    this.color,
+    this.borderColor,
+    this.blur = 20,
+    this.shadow = true,
+    this.fillOpacity,
+  });
+
+  final Widget child;
+  final double radius;
+  final GlassRole role;
+  final EdgeInsetsGeometry padding;
+  final Color? color;
+  final Color? borderColor;
+  final double blur;
+  final bool shadow;
+
+  /// 覆盖填充色的不透明度。
+  ///
+  /// 默认按 [role] 取一档（control 亮色 0.80 / 暗色 0.66）。输入框和顶栏
+  /// 按钮要"能看见背后被糊掉的内容"，所以会显式传更低的透明度 ——
+  /// 只改 [blur] 不够，填充还是实心的话看起来仍然像一块板。
+  ///
+  /// 传了就以它为准，不再走 [role] 的默认档位。
+  final double? fillOpacity;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppSurface s = AppSurface.of(context);
+    final _GlassLayers g = _GlassLayers.of(context, role);
+
+    final bool pill = radius >= 100;
+    final BorderRadius br = BorderRadius.circular(pill ? 999 : radius);
+
+    // 半透明度：卡片更实（要读字），弹层更透（能看见背后）。
+    final double alpha = switch (role) {
+      GlassRole.card => s.isDark ? 0.72 : 0.86,
+      GlassRole.control => s.isDark ? 0.66 : 0.80,
+      GlassRole.floating => s.isDark ? 0.78 : 0.90,
+    };
+
+    // 不做模糊时把填充加实一点。
+    //
+    // 半透明填充是给"背后真的有东西可透"的场景准备的；卡片背后只有页面底色，
+    // 透出来等于把页面底色混进卡片，颜色会发灰。不模糊就当作不透明纸卡。
+    //
+    // ⚠️ **只在调用方没指定颜色时才改写透明度**。像错误卡片那种
+    // `color: danger.withValues(alpha: 0.08)` 是在说"淡淡的红底"，
+    // 这里再把它抬到 0.97 就会变成一整块实心红 —— 用户看到的就是
+    // "报错卡片怎么全红了"。
+    final Color base = color ?? g.fill;
+    final double fillAlpha =
+        fillOpacity ??
+        ((blur <= 0 && color == null)
+            ? (s.isDark ? 0.94 : 0.97)
+            : alpha);
+    final Color fill = base.withValues(alpha: fillAlpha);
+    // ---- 描边 = iOS 的发丝线，不是玻璃高光 ----
+    //
+    // 之前亮色下用 72% 的白边去"勾高光"，那在米黄底上还能读出玻璃感，
+    // 在纯中性灰底上就变成一圈**发亮的框** —— 每个卡片、每个按钮都镶
+    // 一道白边，整屏的噪音有相当一部分来自这里。
+    //
+    // iOS 的做法正好相反：边界是一条**比底色深一点点**的线
+    // （`separator` / `systemGray5`），它只负责"分开"，不负责"发亮"。
+    final Color edge = borderColor ?? s.border;
+
+    // ---- 投影只留给真的浮起来的东西 ----
+    //
+    // 卡片和控件坐在纯色底上：它们靠"比底亮一档 + 一条发丝线"就已经
+    // 分层了，再加投影等于每张卡都在喊"看我"。iOS 的列表页里
+    // 一张卡片是没有投影的。
+    final List<BoxShadow>? shadows = !shadow || role != GlassRole.floating
+        ? null
+        : <BoxShadow>[
+            BoxShadow(
+              color: Colors.black.withValues(alpha: s.isDark ? 0.55 : 0.12),
+              blurRadius: 32,
+              spreadRadius: -6,
+              offset: const Offset(0, 12),
+            ),
+          ];
+
+    return Container(
+      decoration: BoxDecoration(borderRadius: br, boxShadow: shadows),
+      child: ClipRRect(
+        borderRadius: br,
+        child: blur <= 0
+            // ---- 不模糊的档位：直接画 ----
+            //
+            // `BackdropFilter` 是这条界面里最贵的一笔：它要求 GPU 先把这个
+            // 矩形背后的整层合成出来、做一次高斯模糊、再贴回去。一个列表里
+            // 二十张卡片就是二十次 —— 滚动时每帧都要重做，表现就是掉帧、
+            // 发热、启动后头几秒尤其卡。
+            //
+            // 而卡片/按钮坐在**纯色页面底**上：模糊出来的结果和底色没有区别，
+            // 也就是说这些模糊**根本没被看见**，只是花了钱。所以只有真的
+            // 有内容会从背后穿过的档位（浮层、顶栏、输入栏）才开模糊，
+            // 其余档位走这条分支。
+            ? Container(
+                decoration: BoxDecoration(
+                  color: fill,
+                  borderRadius: br,
+                  border: Border.all(color: edge, width: 1),
+                ),
+                child: DefaultTextStyle.merge(
+                  style: TextStyle(color: g.onFill),
+                  child: Padding(padding: padding, child: child),
+                ),
+              )
+            : BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: fill,
+                    borderRadius: br,
+                    border: Border.all(color: edge, width: 1),
+                  ),
+                  child: DefaultTextStyle.merge(
+                    style: TextStyle(color: g.onFill),
+                    child: Padding(padding: padding, child: child),
+                  ),
+                ),
+              ),
+      ),
     );
   }
 }
@@ -156,70 +300,26 @@ class _GlassBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final _GlassLayers g = _GlassLayers.of(context, role);
-
-    // 半径很大时（999 = 想做成全圆角）**必须换成 StadiumBorder**。
-    //
-    // ContinuousRectangleBorder 用的是连续曲率（squircle）公式，
-    // 半径超过短边一半时会算出畸形轮廓 —— 圆形图标按钮就是这样被压歪的。
-    // StadiumBorder 在正方形上就是正圆，在长方形上是胶囊，正是想要的效果。
-    final bool pill = radius >= 100;
-
-    // 投影全为 0 时不要挂 BoxShadow —— 空 alpha 的 BoxShadow 仍会
-    // 让 Flutter 走一遍阴影绘制路径（以及每个卡片一个 saveLayer），
-    // 列表里几十张卡片就是白白的开销。
-    final bool hasShadow = g.shadow.a > 0.001;
-
-    // iOS 的卡片用**连续曲率**（squircle）而不是标准圆弧圆角 ——
-    // 这是 iOS 观感里最不容易被说出来、但一眼能看出差别的一处。
-    // 小半径（输入框、标签）用连续曲率反而会显得"没圆到位"，
-    // 所以只在 >= 20 时启用。
-    final ShapeBorder shape;
-    if (pill) {
-      shape = borderColor == null
-          ? const StadiumBorder()
-          : StadiumBorder(side: BorderSide(color: borderColor!, width: 1.1));
-    } else if (radius >= 20) {
-      shape = ContinuousRectangleBorder(
-        borderRadius: BorderRadius.circular(radius),
-        side: borderColor == null
-            ? BorderSide.none
-            : BorderSide(color: borderColor!, width: 1.1),
-      );
-    } else {
-      shape = RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(radius),
-        side: borderColor == null
-            ? BorderSide.none
-            : BorderSide(color: borderColor!, width: 1.1),
-      );
-    }
-
-    final Widget content = Container(
-      decoration: ShapeDecoration(
-        shape: shape,
-        color: tint ?? g.fill,
-        shadows: hasShadow
-            ? <BoxShadow>[
-                BoxShadow(
-                  color: g.shadow,
-                  blurRadius: role == GlassRole.floating ? 30 : 10,
-                  spreadRadius: role == GlassRole.floating ? -2 : 0,
-                  offset: Offset(0, role == GlassRole.floating ? 10 : 2),
-                ),
-              ]
-            : null,
-      ),
-      child: DefaultTextStyle.merge(
-        style: TextStyle(color: g.onFill),
-        child: Padding(padding: padding, child: child),
-      ),
-    );
-
-    // 裁剪也用同一个 shape，保证描边和裁剪完全一致
-    return ClipPath(
-      clipper: ShapeBorderClipper(shape: shape),
-      child: content,
+  /// 卡片/按钮默认**不做背景模糊**，只有 [GlassRole.floating] 才模糊。
+  ///
+  /// ## 这不是为了省电而牺牲观感
+  ///
+  /// `SurfaceCard` 全项目 82 处，绝大多数坐在**纯色页面底**上 ——
+  /// 背后没有任何内容可以糊，模糊结果和底色完全一样，但每张卡都要
+  /// 走一次 `saveLayer` + 高斯滤波，滚动时每帧重算。这是"整个 app 发涩"
+  /// 的最大一笔开销，而且**肉眼看不见**。
+  ///
+  /// 真正有内容从背后穿过的三处 —— 输入框、顶栏按钮、弹出的浮层 ——
+  /// 全部保留真模糊（输入框 / 顶栏 30~32，浮层 24）。所以视觉上该糊的地方
+  /// 一处没少。
+  return BlurSurface(
+      radius: radius,
+      role: role,
+      color: tint,
+      borderColor: borderColor,
+      padding: padding,
+      blur: role == GlassRole.floating ? 24 : 0,
+      child: child,
     );
   }
 }
@@ -235,7 +335,7 @@ class GlassBar extends StatelessWidget {
     super.key,
     required this.child,
     this.padding = const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-    this.blur = 22,
+    this.blur = 24,
     this.hairlineTop = false,
     this.hairlineBottom = false,
   });
@@ -293,6 +393,7 @@ class SurfaceCard extends StatelessWidget {
     this.color,
     this.borderColor,
     this.onTap,
+    this.role = GlassRole.card,
   });
 
   final Widget child;
@@ -303,11 +404,18 @@ class SurfaceCard extends StatelessWidget {
   final Color? borderColor;
   final VoidCallback? onTap;
 
+  /// 这块卡片在层次里属于哪一档。
+  ///
+  /// 默认 `card`（页面上的内容块）。飘在内容**之上**的东西 ——
+  /// 弹出的小面板、浮层菜单 —— 传 `floating`：它要更厚的玻璃、
+  /// 更重的投影，才不会看起来"贴在页面上"。
+  final GlassRole role;
+
   @override
   Widget build(BuildContext context) {
     final Widget box = _GlassBox(
       radius: radius,
-      role: GlassRole.card,
+      role: role,
       tint: color,
       borderColor: borderColor,
       padding: padding,
@@ -316,12 +424,7 @@ class SurfaceCard extends StatelessWidget {
 
     return Padding(
       padding: margin ?? EdgeInsets.zero,
-      child: onTap == null
-          ? box
-          : Pressable(
-              onTap: onTap,
-              child: box,
-            ),
+      child: onTap == null ? box : Pressable(onTap: onTap, child: box),
     );
   }
 }
@@ -357,93 +460,66 @@ class GlassButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppSurface s = AppSurface.of(context);
+    final bool enabled = onTap != null;
 
-    // **底色交给玻璃，强调色/危险色改由文字和图标承担。**
+    // ---- 小卡片式按钮 ----
     //
-    // 原来是三档实心底色（蓝 / 红 / 浅灰）。换成真正的液态玻璃之后，
-    // `liquid_glass_widgets` 的按钮**没有对外暴露着色参数**（LiquidGlassSettings
-    // 里没有 tint），所以做不到"蓝色玻璃按钮"。与其自己叠一层色块把玻璃盖住
-    // （那就不是玻璃了），不如把语义交给前景色 —— 这也正是 iOS 26 工具栏按钮
-    // 的做法：一块玻璃 + 着色图标/文字。
-    //
-    // 主次关系仍然清楚：主操作是 prominent（更厚、更不透明），
-    // 次要操作是 filled（更薄、更透）。
-    final Color fg = accent
+    // 底色 `surface`（白卡），配一圈发丝边 —— 它读起来是一张
+    // "能按的小卡片"，而不是一块塑料。
+    // 主操作仍用实心系统蓝，危险操作用红色弱填充。
+    final Color bg = accent
         ? AppColors.accent
         : danger
-            ? AppColors.danger
-            : s.text;
+        ? AppColors.danger.withValues(alpha: 0.14)
+        : s.surface;
+    final Color fg = accent
+        ? AppColors.onAccent
+        : danger
+        ? AppColors.danger
+        : s.text;
+    final Color edge = accent
+        ? Colors.transparent
+        : danger
+        ? AppColors.danger.withValues(alpha: 0.35)
+        : s.border;
 
-    final Widget content = Padding(
-      padding: padding,
-      child: Row(
-        mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          if (icon != null) ...<Widget>[
-            Icon(icon, size: fontSize + 3, color: fg),
-            const SizedBox(width: 7),
-          ],
-          Flexible(
-            child: Text(
-              label,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: AppFonts.body(
-                size: fontSize,
-                // iOS 按钮文字是 semibold 而不是 bold —— 更细更"轻"。
-                weight: FontWeight.w600,
-                color: fg,
-                height: 1.2,
-              ),
-            ),
+    return Opacity(
+      opacity: enabled ? 1 : 0.4,
+      child: Pressable(
+        onTap: enabled ? onTap : null,
+        child: Container(
+          width: expand ? double.infinity : null,
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(AppRadius.field),
+            border: Border.all(color: edge, width: 0.9),
           ),
-        ],
+          padding: padding,
+          child: Row(
+            mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              if (icon != null) ...<Widget>[
+                Icon(icon, size: fontSize + 3, color: fg),
+                const SizedBox(width: 7),
+              ],
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: AppFonts.body(
+                    size: fontSize,
+                    weight: FontWeight.w600,
+                    color: fg,
+                    height: 1.2,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
-    );
-
-    return lg.GlassButton.custom(
-      onTap: onTap ?? () {},
-      enabled: onTap != null,
-      // 用 `.custom` 这个命名构造，而不是默认那个。
-      //
-      // 默认构造是**给方形图标按钮**用的：`icon` 必填、`width/height` 默认 56、
-      // 而且**根本没有 `child` 参数**（`child` 在默认构造里被写死成 null）。
-      // `.custom` 才是给"文字/复合内容"用的，它的 width/height 默认就是 null，
-      // 于是按钮按内容自适应 —— 这正是文字按钮需要的。
-      width: expand ? double.infinity : null,
-      // ---- 形状：用**具体数值**，不要用哨兵常量 ----
-      //
-      // 这个包的 `shape` 默认值是 `LiquidOval()`，等价于 Flutter 的
-      // `OvalBorder` —— **真正的椭圆**，宽大于高的文字按钮会变成两头尖的。
-      // 所以必须显式给形状。
-      //
-      // 但**不要**用 `GlassDefaults.capsuleRadius`（9999）这个哨兵值：
-      // 包里只有 `GlassSegmentedControl` 和 `GlassTabBar` 会对它做特判
-      // （文档原话是"检测到这个值后直接透传给 shader、不做内缩减法"）。
-      // `GlassButton` 里**一处都没引用** capsuleRadius / effectiveRadius /
-      // safeBorderRadius —— 它把这个半径原样送进 shader 的 SDF uniform，
-      // 一个 9999 的半径会算出退化/畸变的轮廓。
-      //
-      // 23 对现在所有按钮都是胶囊（按钮高度 29~46，Flutter 会把半径夹到
-      // 半高，正好等于 23 或更小），但 shader 拿到的是个正常数字。
-      //
-      // 分段控件那边用哨兵值是**对的** —— 它确实有那个特判。
-      shape: const lg.LiquidRoundedRectangle(
-        borderRadius: AppRadius.input,
-      ),
-      // **一律用 `filled`，不用 `prominent`。**
-      //
-      // 包对 `prominent` 的定义是"更厚的玻璃 + 更低的透明度，让按钮更重"——
-      // 翻成视觉就是**更白的一块**。在深色底上，一个 prominent 玻璃按钮
-      // 就是一块发光的白坨，"很多控件发白"里有它一份。
-      //
-      // 而强调色本来就不该由玻璃底承担：这个包**没有对外暴露玻璃着色参数**，
-      // 所以主次只能靠图标和文字颜色表达 —— 这也正是 iOS 26 工具栏的做法：
-      // 一块玻璃 + 着色图标/文字。用 `prominent` 想加强主次，付出的代价是
-      // 整块变白，得不偿失。
-      style: lg.GlassButtonStyle.filled,
-      child: content,
     );
   }
 }
@@ -476,15 +552,24 @@ class GlassIconButton extends StatelessWidget {
     // 包的按钮默认从 `IconTheme` 取颜色（CupertinoColors.label）和尺寸，
     // 而这里的 color 承载了语义（危险操作是红的、禁用是灰的），
     // 必须由我们说了算，不能被主题盖掉。
-    Widget button = lg.GlassIconButton(
-      icon: Icon(icon, size: iconSize, color: color ?? s.text),
-      // 包的这个按钮**没有 enabled 参数**（只有 GlassButton 有）。
-      // 禁用态只能自己表现：给一个空回调 + 降透明度，
-      // 而不是不传回调 —— 那会变成一个"点了没反应但看着是活的"按钮。
-      onPressed: disabled ? () {} : onTap!,
-      size: size,
-      iconSize: iconSize,
-      semanticLabel: tooltip,
+    //
+    // iOS 圆形图标钮：半透明底 + 一条发丝线。
+    // 圆形是因为图标按钮没有文字，圆在头部/工具栏里更整齐。
+    Widget button = SizedBox(
+      width: size,
+      height: size,
+      child: Pressable(
+        onTap: disabled ? null : onTap,
+        child: BlurSurface(
+          radius: AppRadius.pill,
+          role: GlassRole.control,
+          blur: 16,
+          color: s.surface,
+          child: Center(
+            child: Icon(icon, size: iconSize, color: color ?? s.text),
+          ),
+        ),
+      ),
     );
 
     if (disabled) {
@@ -504,11 +589,7 @@ class GlassIconButton extends StatelessWidget {
 /// 手感是死的。所以凡是需要可点区域、又不想引入 Material 组件的地方，
 /// 都应该用这个包一层 —— 比如对话页顶部那个「点开历史记录」的标题。
 class Pressable extends StatefulWidget {
-  const Pressable({
-    super.key,
-    required this.child,
-    this.onTap,
-  });
+  const Pressable({super.key, required this.child, this.onTap});
 
   final Widget child;
   final VoidCallback? onTap;
@@ -580,7 +661,8 @@ class GlassChip extends StatelessWidget {
     // 判为"可能为 null"。局部变量可以提升。
     final Color? tintColor = color;
     final Color fg = tintColor ?? AppColors.accent;
-    final Color bgFill = background ??
+    final Color bgFill =
+        background ??
         (tintColor != null
             ? tintColor.withValues(alpha: s.isDark ? 0.26 : 0.15)
             : s.codeBg);
@@ -590,10 +672,7 @@ class GlassChip extends StatelessWidget {
         horizontal: dense ? 8 : 10,
         vertical: dense ? 3.5 : 5,
       ),
-      decoration: ShapeDecoration(
-        color: bgFill,
-        shape: const StadiumBorder(),
-      ),
+      decoration: ShapeDecoration(color: bgFill, shape: const StadiumBorder()),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[

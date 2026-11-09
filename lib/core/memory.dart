@@ -19,11 +19,8 @@ import 'ids.dart';
 /// 记忆是**事实**（"用户在上海""用户用 DeepSeek"）。两者混在一起模型会分不清
 /// 该"照做"还是该"知道"，所以分成两处存、分两段注入。
 class MemoryItem {
-  MemoryItem({
-    required this.id,
-    required this.text,
-    DateTime? createdAt,
-  }) : createdAt = createdAt ?? DateTime.now();
+  MemoryItem({required this.id, required this.text, DateTime? createdAt})
+    : createdAt = createdAt ?? DateTime.now();
 
   final String id;
 
@@ -33,17 +30,17 @@ class MemoryItem {
   final DateTime createdAt;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'id': id,
-        'text': text,
-        'createdAt': createdAt.toIso8601String(),
-      };
+    'id': id,
+    'text': text,
+    'createdAt': createdAt.toIso8601String(),
+  };
 
   static MemoryItem fromJson(Map<String, dynamic> j) => MemoryItem(
-        id: j['id']?.toString() ?? '',
-        text: j['text']?.toString() ?? '',
-        createdAt:
-            DateTime.tryParse(j['createdAt']?.toString() ?? '') ?? DateTime.now(),
-      );
+    id: j['id']?.toString() ?? '',
+    text: j['text']?.toString() ?? '',
+    createdAt:
+        DateTime.tryParse(j['createdAt']?.toString() ?? '') ?? DateTime.now(),
+  );
 }
 
 /// 记忆的存储与注入。
@@ -148,10 +145,7 @@ class MemoryStore extends ChangeNotifier {
       if (m.text == t) return null;
     }
 
-    items.add(MemoryItem(
-      id: newId(),
-      text: t,
-    ));
+    items.add(MemoryItem(id: newId(), text: t));
     _changed();
     return null;
   }
@@ -193,8 +187,10 @@ class MemoryStore extends ChangeNotifier {
     for (final MemoryItem m in items) {
       sb.writeln('- ${m.text}');
     }
-    sb.writeln('这些事实可能过时。**如果当前对话里出现了与之冲突的信息，'
-        '以当前对话为准**，并考虑更新记忆。');
+    sb.writeln(
+      '这些事实可能过时。**如果当前对话里出现了与之冲突的信息，'
+      '以当前对话为准**，并考虑更新记忆。',
+    );
     return sb.toString();
   }
 }

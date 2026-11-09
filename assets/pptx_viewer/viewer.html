@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>PPT 预览</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden; background: #fff;
+    -webkit-text-size-adjust: 100%;
+  }
+  #stage { width: 100%; height: 100%; overflow: hidden; background: #fff; }
+  /* 翻页由 Flutter 的底栏负责，隐藏库自带的按钮和页码 */
+  #stage .pptx-preview-wrapper-next,
+  #stage .pptx-preview-wrapper-pagination { display: none !important; }
+  /* 库默认给 wrapper 黑色底，这里改回白纸 */
+  #stage .pptx-preview-wrapper {
+    background: #fff !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    overflow: hidden !important;
+  }
+  #stage .pptx-preview-slide-wrapper { margin: 0 auto !important; }
+  img { -webkit-user-drag: none; }
+</style>
+<script src="pptx-preview.umd.js"></script>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+(function () {
+  'use strict';
+
+  var stage = document.getElementById('stage');
+  var previewer = null;
+
+  // 攒块的缓冲区。
+  //
+  // ## 为什么是"预先分配一整块"而不是先 push 再拼
+  //
+  // 旧实现把每个 chunk 塞进数组，最后再 new 一个总长的 Uint8Array 拷一遍。
+  // 峰值内存 = 2 × 文件大小（27 MB 的 PPT 要同时存在 54 MB），外加每一块
+  // 的 base64 字符串（+33%）。手机上 WebView 的内存上限本来就不宽裕，
+  // 一次 GC 抖动就可能被系统杀掉 —— 表现是"PPT 打不开/白屏"，
+  // 而 Dart 侧只看到超时，于是退回兼容渲染，用户看到「N 张图未能显示」。
+  //
+  // 现在 beginPptx 先拿到总长度，直接分配一次，每个 chunk 按偏移写进去。
+  // 峰值 = 1 × 文件大小 + 单块 base64。
+  var buffer = null;
+  var writeOff = 0;
+  var expected = 0;
+  var ready = false;
+  var lastDiag = '';
+
+  function call(name, data) {
+    try {
+      if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
+        window.flutter_inappwebview.callHandler(name, data);
+      }
+    } catch (e) { /* 页面可能先于桥接加载 */ }
+  }
+
+  function failure(where, e) {
+    var msg = where + ': ' + (e && e.message ? e.message : String(e));
+    lastDiag = msg;
+    call('pptx_error', msg);
+  }
+
+  function stageSize() {
+    return {
+      w: Math.max(1, stage.clientWidth || window.innerWidth || 1),
+      h: Math.max(1, stage.clientHeight || window.innerHeight || 1)
+    };
+  }
+
+  /**
+   * @param total 分块数
+   * @param bytes 整个文件的字节数（新协议）。老调用方不给时退回"边收边长"。
+   */
+  window.beginPptx = function (total, bytes) {
+    expected = total | 0;
+    writeOff = 0;
+    ready = false;
+    buffer = (typeof bytes === 'number' && bytes > 0)
+      ? new Uint8Array(bytes)
+      : null;
+  };
+
+  window.addChunk = function (b64) {
+    try {
+      var bin = atob(b64);
+      var n = bin.length;
+      if (buffer && writeOff + n <= buffer.length) {
+        for (var i = 0; i < n; i++) buffer[writeOff + i] = bin.charCodeAt(i);
+        writeOff += n;
+      } else {
+        // 长度对不上（老协议，或文件在传输中被改过）：退回逐块数组。
+        if (!buffer) {
+          buffer = new Uint8Array(Math.max(n, (expected || 1) * 256 * 1024));
+        }
+        if (writeOff + n > buffer.length) {
+          var grown = new Uint8Array(buffer.length + Math.max(n, buffer.length));
+          grown.set(buffer.subarray(0, writeOff));
+          buffer = grown;
+        }
+        for (var j = 0; j < n; j++) buffer[writeOff + j] = bin.charCodeAt(j);
+        writeOff += n;
+      }
+    } catch (e) {
+      failure('chunk', e);
+    }
+  };
+
+  window.finishPptx = function () {
+    try {
+      if (!window.pptxPreview || !window.pptxPreview.init) {
+        failure('init', 'preview library missing');
+        return;
+      }
+      if (!buffer || writeOff === 0) {
+        failure('finish', '没有收到文件内容');
+        return;
+      }
+      var bytes = buffer.slice(0, writeOff);
+      buffer = null;
+
+      if (previewer) {
+        try { previewer.destroy(); } catch (e) { /* ignore */ }
+        previewer = null;
+      }
+      stage.innerHTML = '';
+      var s = stageSize();
+      previewer = window.pptxPreview.init(stage, {
+        width: s.w,
+        height: s.h,
+        mode: 'slide'
+      });
+
+      previewer.preview(bytes.buffer).then(function () {
+        // 一份没有任何幻灯片的 pptx（例如某些模板导出包）会让库在
+        // renderSlide(0) 里读到 undefined，进而抛在读 `background` 上。
+        // 那不是"渲染错了"，是这个文件本来就没有页面 —— 分开报。
+        if (!previewer.slideCount) {
+          failure('empty', '这份文件里没有幻灯片');
+          return;
+        }
+        ready = true;
+        window.showSlide(0);
+        call('pptx_ready', { count: previewer.slideCount });
+      }).catch(function (e) {
+        failure('preview', e);
+      });
+    } catch (e) {
+      failure('finish', e);
+    }
+  };
+
+  window.showSlide = function (index) {
+    if (!previewer || !ready) return;
+    try {
+      previewer.renderSingleSlide(index | 0);
+      // 库自带的翻页按钮在渲染后可能又被加回来
+      var junk = stage.querySelectorAll(
+        '.pptx-preview-wrapper-next,.pptx-preview-wrapper-pagination'
+      );
+      for (var i = 0; i < junk.length; i++) junk[i].style.display = 'none';
+    } catch (e) {
+      failure('slide', e);
+    }
+  };
+
+  /** 诊断用：Dart 侧在超时前先问一句"你到哪一步了"。 */
+  window.pptxDiag = function () {
+    return {
+      lib: !!(window.pptxPreview && window.pptxPreview.init),
+      ready: ready,
+      received: writeOff,
+      slides: previewer ? (previewer.slideCount || 0) : 0,
+      lastError: lastDiag,
+      size: stageSize()
+    };
+  };
+
+  /**
+   * 框选命中的文字：遍历当前页的叶子元素，按屏幕矩形取交集。
+   * Flutter 传进来的是 CSS 像素坐标。
+   */
+  window.pickText = function (left, top, right, bottom) {
+    try {
+      var out = [];
+      var seen = {};
+      var els = stage.querySelectorAll('*');
+      for (var i = 0; i < els.length; i++) {
+        var el = els[i];
+        if (el.children && el.children.length) continue;
+        var txt = (el.innerText || el.textContent || '').trim();
+        if (!txt) continue;
+        var r = el.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) continue;
+        if (r.right < left || r.left > right || r.bottom < top || r.top > bottom) continue;
+        if (seen[txt]) continue;
+        seen[txt] = 1;
+        out.push(txt);
+      }
+      return out.join('\n');
+    } catch (e) {
+      return '';
+    }
+  };
+
+  window.clearStage = function () {
+    try {
+      if (previewer) previewer.destroy();
+    } catch (e) { /* ignore */ }
+    previewer = null;
+    ready = false;
+    buffer = null;
+    writeOff = 0;
+    stage.innerHTML = '';
+  };
+})();
+</script>
+</body>
+</html>

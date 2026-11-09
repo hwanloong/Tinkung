@@ -58,12 +58,8 @@ class RiskClassifier {
   ];
 
   /// 破坏性特征 —— 命中即 dangerous
-  static final List<(RegExp, String)> _dangerousPatterns =
-      <(RegExp, String)>[
-    (
-      RegExp(r'\brm\b[^|;]*\s-[a-zA-Z]*[rf]'),
-      '包含 rm 的递归/强制删除，删除后无法恢复'
-    ),
+  static final List<(RegExp, String)> _dangerousPatterns = <(RegExp, String)>[
+    (RegExp(r'\brm\b[^|;]*\s-[a-zA-Z]*[rf]'), '包含 rm 的递归/强制删除，删除后无法恢复'),
     (RegExp(r'\bpm\s+clear\b'), 'pm clear 会清除目标的全部数据（登录状态、本地文件等），不可撤销'),
     (RegExp(r'\bpm\s+uninstall\b'), 'pm uninstall 会卸载应用，其数据一并丢失'),
     (RegExp(r'\bpm\s+disable(-user)?\b'), 'pm disable 会停用应用，可能导致系统组件异常'),
@@ -86,8 +82,7 @@ class RiskClassifier {
 
   /// 会改变状态但通常可逆 —— 至少 caution。
   /// 用来给提示语提供更具体的解释。
-  static final List<(RegExp, String)> _cautionPatterns =
-      <(RegExp, String)>[
+  static final List<(RegExp, String)> _cautionPatterns = <(RegExp, String)>[
     (RegExp(r'\bpm\s+install\b'), '安装应用'),
     (RegExp(r'\bpm\s+(grant|revoke)\b'), '授予/撤销运行时权限'),
     (RegExp(r'\bsettings\s+(put|delete)\b'), '修改系统设置项'),
@@ -142,7 +137,9 @@ class RiskClassifier {
         continue;
       }
 
-      if ((c == '&' || c == '|') && i + 1 < command.length && command[i + 1] == c) {
+      if ((c == '&' || c == '|') &&
+          i + 1 < command.length &&
+          command[i + 1] == c) {
         segments.add(buf.toString());
         buf.clear();
         i++;
@@ -166,15 +163,14 @@ class RiskClassifier {
   }
 
   /// 去掉引号，避免引号内的内容干扰关键词匹配
-  static String _stripQuotes(String s) =>
-      s.replaceAll(RegExp(r'''["']'''), '');
+  static String _stripQuotes(String s) => s.replaceAll(RegExp(r'''["']'''), '');
 
   /// 去掉前置的环境变量赋值（`FOO=bar cmd`）
   static String _stripEnvPrefix(String segment) {
     String s = segment;
     while (true) {
-      final RegExpMatch? m =
-          RegExp(r'^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+').firstMatch(s);
+      final RegExpMatch? m = RegExp(r'^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+')
+          .firstMatch(s);
       if (m == null) return s;
       s = s.substring(m.end);
     }

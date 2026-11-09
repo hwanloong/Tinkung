@@ -26,8 +26,7 @@ class PyResult {
 
   static PyResult fromJson(String raw) {
     try {
-      final Map<String, dynamic> j =
-          jsonDecode(raw) as Map<String, dynamic>;
+      final Map<String, dynamic> j = jsonDecode(raw) as Map<String, dynamic>;
       return PyResult(
         ok: j['ok'] == true,
         output: (j['output'] ?? '').toString(),
@@ -83,8 +82,7 @@ class PythonService extends ChangeNotifier {
         _available = false;
         _lastError = '通道没有返回';
       } else {
-        final Map<String, dynamic> j =
-            jsonDecode(raw) as Map<String, dynamic>;
+        final Map<String, dynamic> j = jsonDecode(raw) as Map<String, dynamic>;
         if (j['version'] != null) {
           _version = j['version'].toString();
           _available = true;
@@ -124,10 +122,10 @@ class PythonService extends ChangeNotifier {
       return const PyResult(ok: false, error: '当前平台不支持内嵌 Python');
     }
     try {
-      final String? raw = await _channel.invokeMethod<String>('run', <String, dynamic>{
-        'code': code,
-        'reset': reset,
-      });
+      final String? raw = await _channel.invokeMethod<String>(
+        'run',
+        <String, dynamic>{'code': code, 'reset': reset},
+      );
       if (raw == null) {
         return const PyResult(ok: false, error: '通道没有返回结果');
       }
