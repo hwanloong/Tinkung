@@ -2,239 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../core/models.dart';
-import 'risk.dart';
 import 'tool.dart';
 
-/// 通用 shell：所有能力的兜底，也是模型最常用的入口。
-class ShellTool extends AgentTool {
-  const ShellTool();
-
-  @override
-  String get name => 'run_shell';
-
-  @override
-  String get title => 'shell';
-
-  @override
-  String get description =>
-      '在设备上以 shell（adb）身份执行一条命令并返回结果。'
-      '可访问 pm / am / settings / dumpsys / screencap / svc / input 等系统命令。'
-      '注意：命令以 shell 身份运行，破坏性操作不可撤销。'
-      '只读命令会自动执行，其余会先请用户确认。';
-
-  @override
-  Map<String, dynamic> get parameters => <String, dynamic>{
-    'type': 'object',
-    'properties': <String, dynamic>{
-      'command': <String, dynamic>{
-        'type': 'string',
-        'description': '要执行的完整 shell 命令',
-      },
-      'purpose': <String, dynamic>{
-        'type': 'string',
-        'description': '一句话说明这条命令做什么，会展示给用户帮助其判断',
-      },
-    },
-    'required': <String>['command'],
-  };
-
-  @override
-  RiskAssessment riskFor(Map<String, dynamic> args) =>
-      RiskClassifier.assessShell(args.str('command'));
-
-  @override
-  String summarize(Map<String, dynamic> args) => args.str('command');
-
-  @override
-  Future<String> run(ToolContext ctx, Map<String, dynamic> args) async {
-    final String cmd = args.str('command').trim();
-    if (cmd.isEmpty) return '错误：command 不能为空';
-
-    final r = await ctx.shizuku.exec(cmd, timeoutMs: 30000);
-    final StringBuffer sb = StringBuffer();
-    sb.writeln('exit=${r.code}');
-    if (r.timedOut) sb.writeln('（执行超时，已强制终止）');
-    sb.writeln('--- stdout ---');
-    sb.writeln(clampOutput(r.stdout.trim().isEmpty ? '(空)' : r.stdout.trim()));
-    if (r.stderr.trim().isNotEmpty) {
-      sb.writeln('--- stderr ---');
-      sb.writeln(clampOutput(r.stderr.trim()));
-    }
-    return sb.toString();
-  }
-}
-
-/// 应用管理
-class AppManagerTool extends AgentTool {
-  const AppManagerTool();
-
-  @override
-  String get name => 'app_manage';
-
-  @override
-  String get title => '应用管理';
-
-  @override
-  String get description =>
-      '管理已安装应用。action 取值：'
-      'list（列出应用）、info（查看详情）、path（查看安装路径）、'
-      'clear（清除全部数据，危险）、uninstall（卸载，危险）、'
-      'disable（停用，危险）、enable（启用）、force_stop（强制停止）、'
-      'install（从指定 apk 路径安装）。';
-
-  @override
-  Map<String, dynamic> get parameters => <String, dynamic>{
-    'type': 'object',
-    'properties': <String, dynamic>{
-      'action': <String, dynamic>{
-        'type': 'string',
-        'enum': <String>[
-          'list',
-          'info',
-          'path',
-          'clear',
-          'uninstall',
-          'disable',
-          'enable',
-          'force_stop',
-          'install',
-        ],
-        'description': '要执行的操作',
-      },
-      'package': <String, dynamic>{
-        'type': 'string',
-        'description': '目标包名，如 com.netease.cloudmusic',
-      },
-      'scope': <String, dynamic>{
-        'type': 'string',
-        'enum': <String>['user', 'system', 'all'],
-        'description': 'list 时的范围，默认 user（第三方应用）',
-      },
-      'filter': <String, dynamic>{
-        'type': 'string',
-        'description': 'list 时按关键字过滤包名',
-      },
-      'apk_path': <String, dynamic>{
-        'type': 'string',
-        'description': 'install 时的 apk 文件路径',
-      },
-    },
-    'required': <String>['action'],
-  };
-
-  @override
-  RiskAssessment riskFor(Map<String, dynamic> args) {
-    final String action = args.str('action');
-    final String pkg = args.str('package');
-
-    switch (action) {
-      case 'clear':
-        return RiskAssessment(RiskLevel.dangerous, <String>[
-          'pm clear 会清除 $pkg 的全部数据（登录状态、本地文件、缓存），不可撤销',
-        ]);
-      case 'uninstall':
-        return RiskAssessment(RiskLevel.dangerous, <String>[
-          '卸载 $pkg，其数据会一并丢失',
-        ]);
-      case 'disable':
-        return RiskAssessment(RiskLevel.dangerous, <String>[
-          '停用 $pkg，可能导致相关功能或系统组件异常',
-        ]);
-      case 'install':
-        return RiskAssessment(RiskLevel.caution, <String>['从 apk 安装应用']);
-      case 'enable':
-      case 'force_stop':
-        return RiskAssessment(RiskLevel.caution, <String>[
-          action == 'enable' ? '启用应用' : '强制停止应用（未保存的数据可能丢失）',
-        ]);
-      default:
-        return RiskAssessment.safe;
-    }
-  }
-
-  @override
-  String summarize(Map<String, dynamic> args) {
-    final String a = args.str('action');
-    if (a == 'list') return '列出应用（${args.str('scope', fallback: 'user')}）';
-    if (a == 'install') return '安装 ${args.str('apk_path')}';
-    return '$a ${args.str('package')}';
-  }
-
-  @override
-  Future<String> run(ToolContext ctx, Map<String, dynamic> args) async {
-    final String action = args.str('action');
-    final String pkg = args.str('package').trim();
-
-    Future<String> exec(String cmd) async {
-      final r = await ctx.shizuku.exec(cmd, timeoutMs: 60000);
-      if (!r.ok && r.stderr.trim().isNotEmpty) {
-        return 'exit=${r.code}\n${clampOutput(r.stderr.trim())}';
-      }
-      return clampOutput(r.output.trim());
-    }
-
-    switch (action) {
-      case 'list':
-        final String scope = args.str('scope', fallback: 'user');
-        final String flag = switch (scope) {
-          'system' => '-s',
-          'all' => '',
-          _ => '-3',
-        };
-        String out = await exec('pm list packages $flag');
-        final String filter = args.str('filter').toLowerCase();
-        if (filter.isNotEmpty) {
-          out = out
-              .split('\n')
-              .where((String l) => l.toLowerCase().contains(filter))
-              .join('\n');
-        }
-        final int count = out
-            .split('\n')
-            .where((String l) => l.trim().isNotEmpty)
-            .length;
-        return '共 $count 个：\n$out';
-
-      case 'info':
-        if (pkg.isEmpty) return '错误：缺少 package';
-        return exec('dumpsys package $pkg');
-
-      case 'path':
-        if (pkg.isEmpty) return '错误：缺少 package';
-        return exec('pm path $pkg');
-
-      case 'clear':
-        if (pkg.isEmpty) return '错误：缺少 package';
-        return exec('pm clear $pkg');
-
-      case 'uninstall':
-        if (pkg.isEmpty) return '错误：缺少 package';
-        return exec('pm uninstall $pkg');
-
-      case 'disable':
-        if (pkg.isEmpty) return '错误：缺少 package';
-        return exec('pm disable-user --user 0 $pkg');
-
-      case 'enable':
-        if (pkg.isEmpty) return '错误：缺少 package';
-        return exec('pm enable $pkg');
-
-      case 'force_stop':
-        if (pkg.isEmpty) return '错误：缺少 package';
-        return exec('am force-stop $pkg');
-
-      case 'install':
-        final String apk = args.str('apk_path');
-        if (apk.isEmpty) return '错误：缺少 apk_path';
-        return exec('pm install -r ${shQuote(apk)}');
-
-      default:
-        return '错误：未知 action「$action」';
-    }
-  }
-}
-
-/// 文件读写。刻意用 base64 传输内容，避免引号/换行把命令拆坏。
+/// 文件读写。
+///
+/// 全部走 Dart 的 `dart:io`，不再依赖任何系统 shell 权限：
+/// 应用自己的私有目录、工作空间、`/sdcard`（已授予「所有文件访问」时）
+/// 都能直接读写。模型拿到的路径就是它该用的路径。
 class FileTool extends AgentTool {
   const FileTool();
 
@@ -250,9 +24,8 @@ class FileTool extends AgentTool {
       'list（列目录）、read（读文件，text 或 base64）、write（写文件）、'
       'append（追加）、delete（删除，危险）、move、copy、mkdir、'
       'search（按文件名查找）、stat（查看属性）。'
-      '以 shell 身份运行，可访问 /sdcard 与系统目录。'
       'read 大文件用 offset / limit **分段读**（1 起算的行号）：'
-      '一次只返回一段，读完一段再读下一段，不要反复整文件 cat。';
+      '一次只返回一段，读完一段再读下一段，不要反复整文件读。';
 
   @override
   Map<String, dynamic> get parameters => <String, dynamic>{
@@ -294,12 +67,6 @@ class FileTool extends AgentTool {
         'type': 'string',
         'description': 'search 的文件名匹配，如 *.log',
       },
-      // ---- 分段读 ----
-      //
-      // 大文件（日志、CSV、导出的 json）整份 `cat` 只会被 12k 截断，
-      // 而模型拿到"已截断"之后**没有别的路**继续往后读：它只能改用
-      // `run_shell` 拼 `sed`，那一步既多花一轮，又容易把路径拼错。
-      // 给两个数字参数之后，"读第 2001 行到 3000 行"是一次标准调用。
       'offset': <String, dynamic>{
         'type': 'integer',
         'description': 'read 起始行号（1 起算）。默认 1。',
@@ -349,338 +116,241 @@ class FileTool extends AgentTool {
     final String path = args.str('path').trim();
     if (path.isEmpty) return '错误：path 不能为空';
 
-    Future<String> exec(String cmd) async {
-      final r = await ctx.shizuku.exec(cmd, timeoutMs: 30000);
-      if (!r.ok && r.stderr.trim().isNotEmpty) {
-        return 'exit=${r.code}\n${clampOutput(r.stderr.trim())}';
+    try {
+      switch (action) {
+        case 'list':
+          return _list(path);
+
+        case 'read':
+          return _read(args, path);
+
+        case 'write':
+        case 'append':
+          final String content = args.str('content');
+          final File f = File(path);
+          await f.parent.create(recursive: true);
+          if (action == 'write') {
+            await f.writeAsString(content);
+          } else {
+            await f.writeAsString(content, mode: FileMode.append);
+          }
+          return '${action == 'write' ? '已写入' : '已追加'} ${content.length} 字符：$path';
+
+        case 'delete':
+          return _delete(path);
+
+        case 'move':
+          final String dest = args.str('dest').trim();
+          if (dest.isEmpty) return '错误：缺少 dest';
+          return _move(path, dest);
+
+        case 'copy':
+          final String dest = args.str('dest').trim();
+          if (dest.isEmpty) return '错误：缺少 dest';
+          return _copy(path, dest);
+
+        case 'mkdir':
+          await Directory(path).create(recursive: true);
+          return '已创建目录：$path';
+
+        case 'search':
+          final String pattern = args.str('pattern', fallback: '*');
+          return _search(path, pattern);
+
+        case 'stat':
+          return _stat(path);
+
+        default:
+          return '错误：未知 action「$action」';
       }
-      return clampOutput(r.output.trim());
-    }
-
-    switch (action) {
-      case 'list':
-        return exec('ls -la ${shQuote(path)}');
-
-      case 'read':
-        if (args.str('encoding', fallback: 'text') == 'base64') {
-          return exec('base64 ${shQuote(path)}');
-        }
-        // ---- 分段读 ----
-        //
-        // 不传 offset / limit 时行为**完全不变**（整份 cat + 截断），
-        // 所以老的调用方式、老的对话记录都不受影响。
-        //
-        // 传了就只取那一段：`sed -n 'a,bp'` 是 toybox 自带的，不需要
-        // 额外的依赖；行号是整数，和 `shQuote` 过的路径分开拼，没有注入面。
-        final int offset = args.intVal('offset', fallback: 0);
-        final int limit = args.intVal('limit', fallback: 0);
-        if (offset <= 1 && limit <= 0) return exec('cat ${shQuote(path)}');
-
-        final int start = offset <= 0 ? 1 : offset;
-        final int end = limit <= 0 ? start + 1999 : start + limit - 1;
-        // 头一行先自报范围：模型据此判断"后面还有"，也知道下一次该从哪读。
-        // 读空了（start 超过文件长度）会返回一个空段 —— 那本身就是
-        // "文件就这么长"的信号，比一句"已截断"更有用。
-        final String body = await exec(
-          "sed -n '$start,${end}p' ${shQuote(path)}",
-        );
-        if (body.trim().isEmpty) {
-          return '第 $start–$end 行没有内容（文件可能到此为止）。';
-        }
-        return '【第 $start–$end 行】\n$body\n'
-            '（要接着读就 offset=$end+1）';
-
-      case 'write':
-      case 'append':
-        final String content = args.str('content');
-        final String op = action == 'write' ? '>' : '>>';
-        // 内容先 base64 编码，彻底避开引号、换行、$ 等特殊字符
-        final String b64 = base64Encode(utf8.encode(content));
-        return exec(
-          "printf '%s' ${shQuote(b64)} | base64 -d $op ${shQuote(path)}",
-        );
-
-      case 'delete':
-        return exec('rm -f ${shQuote(path)}');
-
-      case 'move':
-        final String dest = args.str('dest');
-        if (dest.isEmpty) return '错误：缺少 dest';
-        return exec('mv ${shQuote(path)} ${shQuote(dest)}');
-
-      case 'copy':
-        final String dest = args.str('dest');
-        if (dest.isEmpty) return '错误：缺少 dest';
-        return exec('cp -r ${shQuote(path)} ${shQuote(dest)}');
-
-      case 'mkdir':
-        return exec('mkdir -p ${shQuote(path)}');
-
-      case 'search':
-        final String pattern = args.str('pattern', fallback: '*');
-        return exec(
-          'find ${shQuote(path)} -name ${shQuote(pattern)} 2>/dev/null',
-        );
-
-      case 'stat':
-        return exec('stat ${shQuote(path)}');
-
-      default:
-        return '错误：未知 action「$action」';
-    }
-  }
-}
-
-/// 系统设置
-class SettingsTool extends AgentTool {
-  const SettingsTool();
-
-  @override
-  String get name => 'system_settings';
-
-  @override
-  String get title => '系统设置';
-
-  @override
-  String get description =>
-      '读写系统设置与开关。action 取值：'
-      'get / put / list（操作 system|secure|global 命名空间）、'
-      'brightness（屏幕亮度 0-255）、volume（音量）、'
-      'wifi（开/关）、data（移动数据开关）、airplane（飞行模式）、'
-      'rotate（自动旋转）。';
-
-  @override
-  Map<String, dynamic> get parameters => <String, dynamic>{
-    'type': 'object',
-    'properties': <String, dynamic>{
-      'action': <String, dynamic>{
-        'type': 'string',
-        'enum': <String>[
-          'get',
-          'put',
-          'list',
-          'brightness',
-          'volume',
-          'wifi',
-          'data',
-          'airplane',
-          'rotate',
-        ],
-      },
-      'namespace': <String, dynamic>{
-        'type': 'string',
-        'enum': <String>['system', 'secure', 'global'],
-        'description': '设置命名空间，默认 system',
-      },
-      'key': <String, dynamic>{
-        'type': 'string',
-        'description': 'get / put 时的设置项名',
-      },
-      'value': <String, dynamic>{'type': 'string', 'description': 'put 时的值'},
-      'level': <String, dynamic>{
-        'type': 'integer',
-        'description': 'brightness 用 0-255；volume 用 0-15',
-      },
-      'enabled': <String, dynamic>{
-        'type': 'boolean',
-        'description': '开关类操作的开关值',
-      },
-      'stream': <String, dynamic>{
-        'type': 'integer',
-        'description': 'volume 的音轨：0 通话 1 系统 2 铃声 3 媒体 4 闹钟',
-      },
-    },
-    'required': <String>['action'],
-  };
-
-  @override
-  RiskAssessment riskFor(Map<String, dynamic> args) {
-    final String action = args.str('action');
-    switch (action) {
-      case 'get':
-      case 'list':
-        return RiskAssessment.safe;
-      case 'wifi':
-      case 'data':
-      case 'airplane':
-        return RiskAssessment(RiskLevel.caution, <String>['切换网络开关会中断当前连接']);
-      case 'brightness':
-        return RiskAssessment(RiskLevel.caution, <String>['修改屏幕亮度']);
-      case 'volume':
-        return RiskAssessment(RiskLevel.caution, <String>['修改音量']);
-      case 'rotate':
-        return RiskAssessment(RiskLevel.caution, <String>['切换自动旋转']);
-      case 'put':
-        return RiskAssessment(RiskLevel.caution, <String>[
-          '修改系统设置项 ${args.str('namespace', fallback: 'system')}/${args.str('key')}',
-        ]);
-      default:
-        return RiskAssessment(RiskLevel.caution, <String>['未知的设置操作']);
+    } catch (e) {
+      return '操作失败：$e';
     }
   }
 
-  @override
-  String summarize(Map<String, dynamic> args) {
-    final String a = args.str('action');
-    if (a == 'get' || a == 'put') {
-      return '$a ${args.str('namespace', fallback: 'system')}/${args.str('key')}';
+  String _list(String path) {
+    final Directory dir = Directory(path);
+    if (!dir.existsSync()) {
+      final File f = File(path);
+      if (!f.existsSync()) return '路径不存在：$path';
+      return _stat(path);
     }
-    return a;
+    final List<FileSystemEntity> items = dir.listSync(followLinks: false)
+      ..sort((FileSystemEntity a, FileSystemEntity b) =>
+          a.path.toLowerCase().compareTo(b.path.toLowerCase()));
+    if (items.isEmpty) return '目录为空：$path';
+    final StringBuffer sb = StringBuffer('$path/\n');
+    for (final FileSystemEntity e in items) {
+      final String name = e.path.split(Platform.pathSeparator).last;
+      final FileStat st = e.statSync();
+      final String kind = e is Directory ? 'd' : (e is Link ? 'l' : '-');
+      final String size = e is Directory ? '-' : '${st.size}';
+      sb.writeln('$kind  ${size.padLeft(9)}  ${_fmtTime(st.modified)}  $name');
+    }
+    return clampOutput(sb.toString());
   }
 
-  @override
-  Future<String> run(ToolContext ctx, Map<String, dynamic> args) async {
-    final String action = args.str('action');
-    final String ns = args.str('namespace', fallback: 'system');
+  String _read(Map<String, dynamic> args, String path) {
+    final File f = File(path);
+    if (!f.existsSync()) return '文件不存在：$path';
+    if (args.str('encoding', fallback: 'text') == 'base64') {
+      return base64Encode(f.readAsBytesSync());
+    }
 
-    Future<String> exec(String cmd) async {
-      final r = await ctx.shizuku.exec(cmd, timeoutMs: 20000);
-      if (!r.ok && r.stderr.trim().isNotEmpty) {
-        return 'exit=${r.code}\n${clampOutput(r.stderr.trim())}';
+    final int offset = args.intVal('offset', fallback: 0);
+    final int limit = args.intVal('limit', fallback: 0);
+
+    // 不分段时保持老行为：整份读 + 截断。
+    if (offset <= 1 && limit <= 0) {
+      return clampOutput(_decodeText(f.readAsBytesSync()));
+    }
+
+    final int start = offset <= 0 ? 1 : offset;
+    final List<String> lines = const LineSplitter().convert(
+      _decodeText(f.readAsBytesSync()),
+    );
+    if (start > lines.length) {
+      return '第 $start 行没有内容（文件共 ${lines.length} 行）。';
+    }
+    final int end = limit <= 0
+        ? lines.length
+        : (start + limit - 1).clamp(start, lines.length);
+    final String body = lines.sublist(start - 1, end).join('\n');
+    if (body.trim().isEmpty) {
+      return '第 $start–$end 行没有内容（文件可能到此为止）。';
+    }
+    return '【第 $start–$end 行】\n${clampOutput(body)}\n'
+        '（要接着读就 offset=${end + 1}）';
+  }
+
+  String _delete(String path) {
+    final File f = File(path);
+    if (f.existsSync()) {
+      f.deleteSync();
+      return '已删除文件：$path';
+    }
+    final Directory d = Directory(path);
+    if (d.existsSync()) {
+      d.deleteSync(recursive: true);
+      return '已删除目录：$path';
+    }
+    return '路径不存在：$path';
+  }
+
+  String _move(String path, String dest) {
+    final File src = File(path);
+    final Directory srcDir = Directory(path);
+    if (!src.existsSync() && !srcDir.existsSync()) {
+      return '路径不存在：$path';
+    }
+    final Directory destDir = Directory(dest);
+    final bool intoDir = destDir.existsSync();
+    if (src.existsSync()) {
+      final String target =
+          intoDir ? '$dest${Platform.pathSeparator}${_basename(path)}' : dest;
+      src.renameSync(target);
+      return '已移动：$path → $target';
+    }
+    final String target =
+        intoDir ? '$dest${Platform.pathSeparator}${_basename(path)}' : dest;
+    srcDir.renameSync(target);
+    return '已移动：$path → $target';
+  }
+
+  String _copy(String path, String dest) {
+    final File src = File(path);
+    if (src.existsSync()) {
+      final String target = Directory(dest).existsSync()
+          ? '$dest${Platform.pathSeparator}${_basename(path)}'
+          : dest;
+      final File out = src.copySync(target);
+      return '已复制：$path → ${out.path}';
+    }
+    final Directory srcDir = Directory(path);
+    if (!srcDir.existsSync()) return '路径不存在：$path';
+    final String target = Directory(dest).existsSync()
+        ? '$dest${Platform.pathSeparator}${_basename(path)}'
+        : dest;
+    _copyDir(srcDir, Directory(target));
+    return '已复制目录：$path → $target';
+  }
+
+  static void _copyDir(Directory src, Directory dest) {
+    dest.createSync(recursive: true);
+    for (final FileSystemEntity e in src.listSync(followLinks: false)) {
+      final String name = _basename(e.path);
+      if (e is Directory) {
+        _copyDir(e, Directory('${dest.path}${Platform.pathSeparator}$name'));
+      } else if (e is File) {
+        e.copySync('${dest.path}${Platform.pathSeparator}$name');
       }
-      return clampOutput(r.output.trim());
-    }
-
-    switch (action) {
-      case 'get':
-        final String key = args.str('key');
-        if (key.isEmpty) return '错误：缺少 key';
-        return exec('settings get $ns ${shQuote(key)}');
-
-      case 'put':
-        final String key = args.str('key');
-        if (key.isEmpty) return '错误：缺少 key';
-        return exec(
-          'settings put $ns ${shQuote(key)} ${shQuote(args.str('value'))}',
-        );
-
-      case 'list':
-        return exec('settings list $ns');
-
-      case 'brightness':
-        final int lv = args.intVal('level', fallback: -1);
-        if (lv < 0 || lv > 255) return '错误：level 需在 0-255 之间';
-        // 关掉自动亮度，否则改完会被系统立刻覆盖
-        await ctx.shizuku.exec('settings put system screen_brightness_mode 0');
-        return exec('settings put system screen_brightness $lv');
-
-      case 'volume':
-        final int stream = args.intVal('stream', fallback: 3);
-        final int lv = args.intVal('level', fallback: -1);
-        if (lv < 0) return '错误：缺少 level';
-        return exec('cmd media volume --stream $stream --set $lv');
-
-      case 'wifi':
-        return exec(
-          'svc wifi ${args.boolVal('enabled') ? 'enable' : 'disable'}',
-        );
-
-      case 'data':
-        return exec(
-          'svc data ${args.boolVal('enabled') ? 'enable' : 'disable'}',
-        );
-
-      case 'airplane':
-        final bool on = args.boolVal('enabled');
-        return exec(
-          'settings put global airplane_mode_on ${on ? 1 : 0}; '
-          'am broadcast -a android.intent.action.AIRPLANE_MODE --ez state $on',
-        );
-
-      case 'rotate':
-        return exec(
-          'settings put system accelerometer_rotation '
-          '${args.boolVal('enabled') ? 1 : 0}',
-        );
-
-      default:
-        return '错误：未知 action「$action」';
     }
   }
-}
 
-/// 截图 / 录屏
-class CaptureTool extends AgentTool {
-  const CaptureTool();
-
-  @override
-  String get name => 'screen_capture';
-
-  @override
-  String get title => '截屏录屏';
-
-  @override
-  String get description =>
-      '截取屏幕或录制屏幕。action：'
-      'screenshot（截图，返回保存路径，可用 read_image 继续识别内容）、'
-      'record（录屏，需给 duration 秒数）。';
-
-  @override
-  Map<String, dynamic> get parameters => <String, dynamic>{
-    'type': 'object',
-    'properties': <String, dynamic>{
-      'action': <String, dynamic>{
-        'type': 'string',
-        'enum': <String>['screenshot', 'record'],
-      },
-      'duration': <String, dynamic>{
-        'type': 'integer',
-        'description': '录屏时长（秒），默认 10，最长 180',
-      },
-    },
-    'required': <String>['action'],
-  };
-
-  @override
-  RiskAssessment riskFor(Map<String, dynamic> args) {
-    // 截图/录屏本身不破坏数据，但会捕获屏幕上的隐私内容，所以要求确认。
-    return RiskAssessment(RiskLevel.caution, <String>[
-      args.str('action') == 'record'
-          ? '会录制屏幕内容，可能包含隐私信息'
-          : '会截取当前屏幕内容，可能包含隐私信息',
-    ]);
-  }
-
-  @override
-  String summarize(Map<String, dynamic> args) => args.str('action');
-
-  @override
-  Future<String> run(ToolContext ctx, Map<String, dynamic> args) async {
-    final String action = args.str('action');
-    await Directory(ctx.workDir).create(recursive: true);
-
-    if (action == 'screenshot') {
-      // binary=true：screencap -p 直接输出 PNG 字节流，走字符串会损坏数据
-      final r = await ctx.shizuku.exec('screencap -p', binary: true);
-      if (r.bytes == null || r.bytes!.isEmpty) {
-        return '截图失败：未取得图像数据。${r.stderr}';
+  String _search(String path, String pattern) {
+    final Directory root = Directory(path);
+    if (!root.existsSync()) return '目录不存在：$path';
+    final RegExp re = _globToRegExp(pattern);
+    final List<String> hits = <String>[];
+    try {
+      for (final FileSystemEntity e
+          in root.listSync(recursive: true, followLinks: false)) {
+        final String name = _basename(e.path);
+        if (re.hasMatch(name)) hits.add(e.path);
+        if (hits.length >= 500) break;
       }
-      final String path =
-          '${ctx.workDir}/shot_${DateTime.now().millisecondsSinceEpoch}.png';
-      await File(path).writeAsBytes(r.bytes!);
-      return '截图已保存：$path\n（${r.bytes!.length} 字节，可继续用 read_image 识别其中文字）';
+    } catch (e) {
+      return '搜索失败：$e';
     }
-
-    if (action == 'record') {
-      final int dur = args.intVal('duration', fallback: 10).clamp(1, 180);
-      final String path =
-          '${ctx.workDir}/rec_${DateTime.now().millisecondsSinceEpoch}.mp4';
-      final r = await ctx.shizuku.exec(
-        'screenrecord --time-limit $dur ${shQuote(path)}',
-        timeoutMs: dur * 1000 + 8000,
-      );
-      final bool exists = await _existsViaShell(ctx, path);
-      if (!exists) {
-        return '录屏失败。exit=${r.code}\n${r.stderr}';
-      }
-      return '录屏已保存：$path（$dur 秒）';
-    }
-
-    return '错误：未知 action「$action」';
+    if (hits.isEmpty) return '没有匹配「$pattern」的文件：$path';
+    return clampOutput('找到 ${hits.length} 个：\n${hits.join('\n')}');
   }
 
-  Future<bool> _existsViaShell(ToolContext ctx, String path) async {
-    final r = await ctx.shizuku.exec('test -f ${shQuote(path)} && echo yes');
-    return r.stdout.contains('yes');
+  String _stat(String path) {
+    final FileSystemEntityType type = FileSystemEntity.typeSync(path);
+    if (type == FileSystemEntityType.notFound) return '路径不存在：$path';
+    final FileStat st = FileStat.statSync(path);
+    final String kind = switch (type) {
+      FileSystemEntityType.directory => '目录',
+      FileSystemEntityType.link => '链接',
+      _ => '文件',
+    };
+    return '路径：$path\n'
+        '类型：$kind\n'
+        '大小：${st.size} 字节\n'
+        '修改时间：${_fmtTime(st.modified)}';
+  }
+
+  static String _decodeText(List<int> bytes) {
+    try {
+      return utf8.decode(bytes);
+    } catch (_) {
+      return latin1.decode(bytes);
+    }
+  }
+
+  static String _basename(String p) =>
+      p.split(Platform.pathSeparator).where((String s) => s.isNotEmpty).last;
+
+  static String _fmtTime(DateTime t) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${t.year}-${two(t.month)}-${two(t.day)} '
+        '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
+  }
+
+  static RegExp _globToRegExp(String glob) {
+    final StringBuffer sb = StringBuffer('^');
+    for (int i = 0; i < glob.length; i++) {
+      final String c = glob[i];
+      if (c == '*') {
+        sb.write('.*');
+      } else if (c == '?') {
+        sb.write('.');
+      } else {
+        sb.write(RegExp.escape(c));
+      }
+    }
+    sb.write(r'$');
+    return RegExp(sb.toString(), caseSensitive: false);
   }
 }

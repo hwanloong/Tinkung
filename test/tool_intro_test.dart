@@ -13,8 +13,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dsh_agent/core/folder_tool.dart';
-import 'package:dsh_agent/ui/tools_page.dart';
+import 'package:dsh_agent/core/skill.dart';
+import 'package:dsh_agent/ui/skills_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -23,7 +23,7 @@ void main() {
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('dsh_tools_');
-    await FolderToolStore.instance.configure(root);
+    await SkillStore.instance.configure(root);
   });
 
   tearDown(() async {
@@ -36,8 +36,8 @@ void main() {
         .writeAsStringSync('---\ntitle: 演示\ndescription: 演示用\n---\n1. 做这个\n');
     File('${d.path}/intro.md').writeAsStringSync('这是备注：它来自某次需求。\n');
 
-    await FolderToolStore.instance.load();
-    final FolderTool t = FolderToolStore.instance.byId('demo')!;
+    await SkillStore.instance.load();
+    final Skill t = SkillStore.instance.byId('demo')!;
 
     expect(t.title, '演示');
     expect(t.body, contains('做这个'));
@@ -49,8 +49,8 @@ void main() {
   test('没有 intro.md 也能正常加载（老工具/没写备注）', () async {
     final Directory d = Directory('${root.path}/bare')..createSync();
     File('${d.path}/tool.md').writeAsStringSync('---\ntitle: 裸工具\n---\n步骤\n');
-    await FolderToolStore.instance.load();
-    final FolderTool t = FolderToolStore.instance.byId('bare')!;
+    await SkillStore.instance.load();
+    final Skill t = SkillStore.instance.byId('bare')!;
     expect(t.intro, isEmpty);
   });
 
@@ -60,13 +60,13 @@ void main() {
     File('${d.path}/intro.md').writeAsStringSync('备注\n');
     File('${d.path}/z_script.sh').writeAsStringSync('echo\n');
     File('${d.path}/a_note.txt').writeAsStringSync('x\n');
-    await FolderToolStore.instance.load();
+    await SkillStore.instance.load();
 
-    final FolderTool t = FolderToolStore.instance.byId('order')!;
-    final List<String> files = FolderToolStore.instance.filesOf(t);
+    final Skill t = SkillStore.instance.byId('order')!;
+    final List<String> files = SkillStore.instance.filesOf(t);
 
-    expect(files.first, FolderToolStore.manifestName);
-    expect(files[1], FolderToolStore.introName);
+    expect(files.first, SkillStore.manifestName);
+    expect(files[1], SkillStore.introName);
     // 其余按名字排
     expect(files.sublist(2), <String>['a_note.txt', 'z_script.sh']);
   });
@@ -74,18 +74,18 @@ void main() {
   test('ensureIntro 会创建带模板的 intro.md', () async {
     final Directory d = Directory('${root.path}/made')..createSync();
     File('${d.path}/tool.md').writeAsStringSync('---\ntitle: 新建\n---\n');
-    await FolderToolStore.instance.load();
-    final FolderTool t = FolderToolStore.instance.byId('made')!;
+    await SkillStore.instance.load();
+    final Skill t = SkillStore.instance.byId('made')!;
     expect(t.intro, isEmpty);
 
-    await FolderToolStore.instance.ensureIntro(t);
+    await SkillStore.instance.ensureIntro(t);
     expect(File('${d.path}/intro.md').existsSync(), isTrue);
     // 重新扫过之后 intro 应该读到了模板内容
-    expect(FolderToolStore.instance.byId('made')!.intro, isNotEmpty);
+    expect(SkillStore.instance.byId('made')!.intro, isNotEmpty);
   });
 
   test('noteLine：跳过标题和 HTML 注释，取第一行真内容', () {
-    final FolderTool t = FolderTool(
+    final Skill t = Skill(
       id: 'x',
       title: 'x',
       folderPath: '/tmp/x',
@@ -108,12 +108,12 @@ void main() {
   });
 
   test('noteLine：备注为空时返回空串（由调用方回退）', () {
-    final FolderTool t = FolderTool(id: 'x', title: 'x', folderPath: '/tmp/x');
+    final Skill t = Skill(id: 'x', title: 'x', folderPath: '/tmp/x');
     expect(t.noteLine, isEmpty);
   });
 
   test('noteLine：整篇只有注释时返回空串', () {
-    final FolderTool t = FolderTool(
+    final Skill t = Skill(
       id: 'x',
       title: 'x',
       folderPath: '/tmp/x',
@@ -123,7 +123,7 @@ void main() {
   });
 
   test('noteLine 会把换行折成单行', () {
-    final FolderTool t = FolderTool(
+    final Skill t = Skill(
       id: 'x',
       title: 'x',
       folderPath: '/tmp/x',
@@ -137,14 +137,14 @@ void main() {
     File('${d.path}/tool.md').writeAsStringSync(
       '---\nname: ren\ntitle: 老名字\ndescription: 说明\nversion: 3\nenabled: true\n---\n正文\n',
     );
-    await FolderToolStore.instance.load();
+    await SkillStore.instance.load();
     // 先确认读出来的确实是老名字（否则下面的断言就证明不了"改了"）
-    expect(FolderToolStore.instance.byId('ren')!.title, '老名字');
+    expect(SkillStore.instance.byId('ren')!.title, '老名字');
 
-    final String? err = await FolderToolStore.instance.setTitle('ren', '新名字');
+    final String? err = await SkillStore.instance.setTitle('ren', '新名字');
     expect(err, isNull);
 
-    final FolderTool after = FolderToolStore.instance.byId('ren')!;
+    final Skill after = SkillStore.instance.byId('ren')!;
     expect(after.title, '新名字');
     // 其它键不能被顺手抹掉 —— 那是"改个名字丢了配置"
     expect(after.description, '说明');
@@ -157,17 +157,17 @@ void main() {
     final Directory d = Directory('${root.path}/old_id')..createSync();
     File('${d.path}/tool.md')
         .writeAsStringSync('---\nname: old_id\ntitle: 老\n---\n正文\n');
-    await FolderToolStore.instance.load();
-    expect(FolderToolStore.instance.byId('old_id'), isNotNull);
+    await SkillStore.instance.load();
+    expect(SkillStore.instance.byId('old_id'), isNotNull);
 
-    final String? err = await FolderToolStore.instance.renameId(
+    final String? err = await SkillStore.instance.renameId(
       'old_id',
       'new_id',
     );
     expect(err, isNull);
 
-    expect(FolderToolStore.instance.byId('old_id'), isNull);
-    final FolderTool t = FolderToolStore.instance.byId('new_id')!;
+    expect(SkillStore.instance.byId('old_id'), isNull);
+    final Skill t = SkillStore.instance.byId('new_id')!;
     expect(t.title, '老'); // 标题不受影响
     // 目录真的换了名
     expect(Directory('${root.path}/new_id').existsSync(), isTrue);
@@ -179,42 +179,42 @@ void main() {
       final Directory d = Directory('${root.path}/$id')..createSync();
       File('${d.path}/tool.md').writeAsStringSync('---\ntitle: $id\n---\n');
     }
-    await FolderToolStore.instance.load();
+    await SkillStore.instance.load();
 
     // 非法字符（会变成文件夹名）
     expect(
-      await FolderToolStore.instance.renameId('a', '带 空格'),
+      await SkillStore.instance.renameId('a', '带 空格'),
       contains('只能用'),
     );
     // 重名
-    expect(await FolderToolStore.instance.renameId('a', 'b'), contains('已经有'));
+    expect(await SkillStore.instance.renameId('a', 'b'), contains('已经有'));
     // 非法输入不该产生副作用
-    expect(FolderToolStore.instance.byId('a'), isNotNull);
+    expect(SkillStore.instance.byId('a'), isNotNull);
   });
 
   test('newTitle 为空会被拒（不允许改出无名工具）', () async {
     final Directory d = Directory('${root.path}/nt')..createSync();
     File('${d.path}/tool.md').writeAsStringSync('---\ntitle: 有名字\n---\n');
-    await FolderToolStore.instance.load();
+    await SkillStore.instance.load();
     expect(
-      await FolderToolStore.instance.setTitle('nt', '   '),
+      await SkillStore.instance.setTitle('nt', '   '),
       contains('不能为空'),
     );
-    expect(FolderToolStore.instance.byId('nt')!.title, '有名字');
+    expect(SkillStore.instance.byId('nt')!.title, '有名字');
   });
 
   test('writeFile 能写 intro.md，写路径越界会被拒', () async {
     final Directory d = Directory('${root.path}/w')..createSync();
     File('${d.path}/tool.md').writeAsStringSync('---\ntitle: 写\n---\n');
-    await FolderToolStore.instance.load();
-    final FolderTool t = FolderToolStore.instance.byId('w')!;
+    await SkillStore.instance.load();
+    final Skill t = SkillStore.instance.byId('w')!;
 
-    await FolderToolStore.instance.writeFile(t, 'intro.md', '新备注');
-    expect(FolderToolStore.instance.byId('w')!.intro, '新备注');
+    await SkillStore.instance.writeFile(t, 'intro.md', '新备注');
+    expect(SkillStore.instance.byId('w')!.intro, '新备注');
 
     // 沙箱：不能跳出工具文件夹
     expect(
-      () => FolderToolStore.instance.writeFile(t, '../../notes.json', '坏'),
+      () => SkillStore.instance.writeFile(t, '../../notes.json', '坏'),
       throwsA(isA<Exception>()),
     );
   });
@@ -227,35 +227,35 @@ void main() {
   // 不该有这个后果 —— 所以"读不出来就退回默认字形"是**必需路径**，
   // 不是防御性冗余：认内容不认扩展名，意味着任意坏字节都能进来。
   // ------------------------------------------------------------------
-  group('ToolIcon 渲染', () {
+  group('SkillIcon 渲染', () {
     Widget host(Widget child) => MaterialApp(
       home: Scaffold(body: Center(child: child)),
     );
 
-    testWidgets('没有图标时渲染默认字形，盒子正好 kToolIconSize', (tester) async {
-      final FolderTool t = FolderTool(
+    testWidgets('没有图标时渲染默认字形，盒子正好 kSkillIconSize', (tester) async {
+      final Skill t = Skill(
         id: 'a',
         title: 'A',
         folderPath: root.path,
       );
-      await tester.pumpWidget(host(ToolIcon(tool: t)));
+      await tester.pumpWidget(host(SkillIcon(tool: t)));
 
       expect(find.byIcon(Icons.folder_outlined), findsOneWidget);
-      // 尺寸必须和 kToolIconSize 一致：列表行高全靠这个盒子稳住
+      // 尺寸必须和 kSkillIconSize 一致：列表行高全靠这个盒子稳住
       expect(
-        tester.getSize(find.byType(ToolIcon)),
-        const Size(kToolIconSize, kToolIconSize),
+        tester.getSize(find.byType(SkillIcon)),
+        const Size(kSkillIconSize, kSkillIconSize),
       );
       expect(
         tester.getSize(find.byIcon(Icons.folder_outlined)),
-        const Size(kToolIconSize, kToolIconSize),
+        const Size(kSkillIconSize, kSkillIconSize),
       );
     });
 
     testWidgets('坏图标（不是图片的字节）静默退回默认字形，不抛异常', (tester) async {
       final File f = File('${root.path}/broken.bin')
         ..writeAsBytesSync(<int>[0x00, 0xFF, 0x13, 0x37, 0x00]);
-      final FolderTool t = FolderTool(
+      final Skill t = Skill(
         id: 'b',
         title: 'B',
         folderPath: root.path,
@@ -264,7 +264,7 @@ void main() {
 
       // 真实 IO + 解码：必须在 runAsync 里跑，否则解码永远不推进
       await tester.runAsync(() async {
-        await tester.pumpWidget(host(ToolIcon(tool: t)));
+        await tester.pumpWidget(host(SkillIcon(tool: t)));
         await Future<void>.delayed(const Duration(milliseconds: 200));
       });
       await tester.pump();
@@ -273,20 +273,20 @@ void main() {
       expect(find.byIcon(Icons.folder_outlined), findsOneWidget);
       // 有图标（虽然坏了）时盒子尺寸也不变 —— 否则行会抖
       expect(
-        tester.getSize(find.byType(ToolIcon)),
-        const Size(kToolIconSize, kToolIconSize),
+        tester.getSize(find.byType(SkillIcon)),
+        const Size(kSkillIconSize, kSkillIconSize),
       );
     });
 
     testWidgets('图标文件被删掉了也不崩（路径还记着）', (tester) async {
-      final FolderTool t = FolderTool(
+      final Skill t = Skill(
         id: 'c',
         title: 'C',
         folderPath: root.path,
         iconPath: '${root.path}/已经没有了.png',
       );
       await tester.runAsync(() async {
-        await tester.pumpWidget(host(ToolIcon(tool: t)));
+        await tester.pumpWidget(host(SkillIcon(tool: t)));
         await Future<void>.delayed(const Duration(milliseconds: 200));
       });
       await tester.pump();
@@ -304,7 +304,7 @@ void main() {
         'BQABqtXIUQAAAABJRU5ErkJggg==',
       );
       final File f = File('${root.path}/tool.icon')..writeAsBytesSync(png);
-      final FolderTool t = FolderTool(
+      final Skill t = Skill(
         id: 'd',
         title: 'D',
         folderPath: root.path,
@@ -312,7 +312,7 @@ void main() {
       );
 
       await tester.runAsync(() async {
-        await tester.pumpWidget(host(ToolIcon(tool: t)));
+        await tester.pumpWidget(host(SkillIcon(tool: t)));
         await Future<void>.delayed(const Duration(milliseconds: 300));
       });
       await tester.pump();
@@ -321,8 +321,8 @@ void main() {
       expect(find.byIcon(Icons.folder_outlined), findsNothing);
       expect(find.byType(Image), findsOneWidget);
       expect(
-        tester.getSize(find.byType(ToolIcon)),
-        const Size(kToolIconSize, kToolIconSize),
+        tester.getSize(find.byType(SkillIcon)),
+        const Size(kSkillIconSize, kSkillIconSize),
       );
     });
   });

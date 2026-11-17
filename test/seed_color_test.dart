@@ -1,111 +1,88 @@
-// 配色是**固定的一套 iOS 灰阶 + 系统蓝**，不从种子色推。
+// 全局 Material You：种子色决定**整套**配色，不是只换一个强调色。
 //
-// 这条测试钉住三件事：
-//   · 深浅两套主题各自解析到对的页面底和强调色
-//     （浅色 `#F2F2F7` + `#007AFF`，深色纯黑 + `#0A84FF`）；
-//   · 表面是**中性**的 —— 页面底和文字都不带色相，颜色只出现在强调色上；
-//   · 主题里不再有"用户种子色"这条通路 —— 以前选完颜色看不出来，
-//     现在干脆没有这个设置项，界面不该再出现半套配色的可能。
+// 旧版本这里钉的是"配色固定成一套 iOS 灰阶 + 系统蓝、表面必须中性、
+// 种子色通路已被移除"。那一版已经被"设置里可选种子色"推翻：现在
+// ColorScheme.fromSeed 推出的表面色必须一路下发到 Material 组件、
+// AppSurface 扩展和全局静态 AppColors，三处同源才算全局生效。
 import 'package:dsh_agent/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('浅色主题用 iOS 分组底 + 系统蓝强调', () {
-    final ThemeData t = AppTheme.light();
-    expect(t.scaffoldBackgroundColor, AppSurface.light.pageBg);
-    // `#F2F2F7`：iOS 的 systemGroupedBackground
-    expect(AppSurface.light.pageBg, const Color(0xFFF2F2F7));
-    expect(t.colorScheme.primary, AppColors.defaultSeed);
-    expect(AppColors.accent, AppColors.defaultSeed);
-    // 强调色压在白字上要够深：`#007AFF` 的亮度约 0.20
-    expect(AppColors.defaultSeed.computeLuminance(), lessThan(0.35));
-  });
+  const Color blue = Color(0xFF2196F3);
+  const Color green = Color(0xFF4CAF50);
 
-  test('深色主题用深灰底 + 提亮后的系统蓝', () {
-    final ThemeData t = AppTheme.dark();
-    expect(t.scaffoldBackgroundColor, AppSurface.dark.pageBg);
-    // 深灰 `#1A1A1A`，不是纯黑：这一版要的是"整块深色面板"，
-    // 纯黑会让卡片、气泡只能靠描边分层。
-    expect(AppSurface.dark.pageBg, const Color(0xFF1A1A1A));
-    // 页面底 → 输入区 → 气泡，三档依次变亮 —— 它们之间的差**必须**
-    // 都能看出来，否则深色下一片糊，分不清哪块是什么。
+  AppSurface surfaceOf(ThemeData t) => t.extension<AppSurface>()!;
+
+  test('不同种子色推出不同的 primary', () {
     expect(
-      AppSurface.dark.surface.computeLuminance(),
-      greaterThan(AppSurface.dark.pageBg.computeLuminance()),
-    );
-    expect(
-      AppSurface.dark.bubbleBg.computeLuminance(),
-      greaterThan(AppSurface.dark.codeBg.computeLuminance()),
-    );
-    expect(t.colorScheme.primary, AppColors.darkAccent);
-    expect(AppColors.accent, AppColors.darkAccent);
-    // 深色下提亮，否则压在深灰上对比度不够
-    expect(
-      AppColors.darkAccent.computeLuminance(),
-      greaterThan(AppColors.defaultSeed.computeLuminance()),
+      AppTheme.light(seed: blue).colorScheme.primary,
+      isNot(AppTheme.light(seed: green).colorScheme.primary),
     );
   });
 
-  test('表面色是中性的：灰阶三通道相等，不带色相', () {
-    // 这是这一版的核心 —— 界面本身应该是"无色"的，
-    // 唯一的彩色来自强调色。带一点点色相（比如暖米黄）在整屏铺开，
-    // 就是用户说的"颜色太浓"。
-    for (final AppSurface s in <AppSurface>[
-      AppSurface.light,
-      AppSurface.dark,
-    ]) {
-      for (final Color c in <Color>[
-        s.pageBg,
-        s.surface,
-        s.border,
-        s.codeBg,
-        s.text,
-        s.muted,
-        s.bubbleBg,
-      ]) {
-        final int r = (c.r * 255).round();
-        final int g = (c.g * 255).round();
-        final int b = (c.b * 255).round();
-        // 允许 1 的误差：picked 的三档灰里个别值为了和 iOS 对齐
-        // 取了 `#F2F2F7`（b 比 r/g 高 5）—— 那是有意的系统底色。
-        expect(
-          (r - g).abs() <= 6 && (g - b).abs() <= 6,
-          isTrue,
-          reason: '$c 不是中性灰',
-        );
-      }
-    }
+  test('表面色整套来自 ColorScheme 的 tonal 阶梯，不再是写死的灰', () {
+    final ThemeData t = AppTheme.light(seed: blue);
+    final AppSurface s = surfaceOf(t);
+    expect(s.pageBg, t.colorScheme.surface);
+    expect(s.surface, t.colorScheme.surfaceContainerLow);
+    expect(s.codeBg, t.colorScheme.surfaceContainerHighest);
+    expect(s.chipBg, t.colorScheme.surfaceContainerHigh);
+    expect(s.bubbleBg, t.colorScheme.surfaceContainerHigh);
+    expect(s.text, t.colorScheme.onSurface);
+    expect(s.muted, t.colorScheme.onSurfaceVariant);
+    expect(s.border, t.colorScheme.outlineVariant);
+    expect(t.scaffoldBackgroundColor, s.pageBg);
+    // 旧实现把表面钉死在这一档 iOS 灰上，换种子色完全看不出来。
+    expect(s.pageBg, isNot(AppSurface.light.pageBg));
   });
 
-  test('两套主题的明暗必须真的是两套（不是同一张纸）', () {
-    expect(
-      AppSurface.light.pageBg.computeLuminance(),
-      greaterThan(AppSurface.dark.pageBg.computeLuminance()),
+  test('换种子色时自定义组件读到的表面也跟着换', () {
+    final AppSurface a = surfaceOf(AppTheme.light(seed: blue));
+    final AppSurface b = surfaceOf(AppTheme.light(seed: green));
+    expect(a.pageBg, isNot(b.pageBg));
+    expect(a.bubbleBg, isNot(b.bubbleBg));
+  });
+
+  test('跟随系统壁纸时直接用系统给的 ColorScheme', () {
+    final ColorScheme system = ColorScheme.fromSeed(
+      seedColor: green,
+      brightness: Brightness.light,
     );
+    final ThemeData t = AppTheme.light(seed: blue, fromSystem: system);
+    expect(t.colorScheme, system);
+    expect(t.colorScheme.primary, system.primary);
+    expect(surfaceOf(t).pageBg, system.surface);
+  });
+
+  test('全局静态强调色按当前 scheme 刷新，不再是写死的陶土橙', () {
+    final ColorScheme scheme = ColorScheme.fromSeed(seedColor: blue);
+    AppColors.applyScheme(scheme, dark: false);
+    expect(AppColors.accent, scheme.primary);
+    expect(AppColors.onAccent, scheme.onPrimary);
+    expect(AppColors.lightBg, scheme.surface);
+    expect(AppColors.research, scheme.primary);
+    // 语义色不跟主题换色相：红 = 出错这条直觉要保住。
+    expect(AppColors.danger, const Color(0xFFFF3B30));
+  });
+
+  test('不传种子色时用默认陶土橙', () {
     expect(
-      AppSurface.light.text.computeLuminance(),
-      lessThan(AppSurface.dark.text.computeLuminance()),
+      AppTheme.light().colorScheme.primary,
+      AppTheme.light(seed: AppColors.defaultSeed).colorScheme.primary,
     );
   });
 
-  test('app 级强调色在 builder 里按实际生效的那套重刷', () {
-    // 这个测试防的是一类真实故障：light/dark 两份主题都会被构建，
-    // 而 darkTheme 在后 —— 不在 builder 里重刷的话，浅色界面里所有
-    // 读 AppColors.accent 的图标会变成深色主题那一份。
-    AppColors.applyScheme(
-      ColorScheme.fromSeed(seedColor: AppColors.defaultSeed),
-      dark: false,
+  test('同一支种子色在明暗两套下仍真的是两套', () {
+    final ThemeData l = AppTheme.light(seed: blue);
+    final ThemeData d = AppTheme.dark(seed: blue);
+    final AppSurface ls = surfaceOf(l);
+    final AppSurface ds = surfaceOf(d);
+    expect(
+      ls.pageBg.computeLuminance(),
+      greaterThan(ds.pageBg.computeLuminance()),
     );
-    expect(AppColors.accent, AppColors.defaultSeed);
-
-    AppColors.applyScheme(
-      ColorScheme.fromSeed(
-        seedColor: AppColors.darkAccent,
-        brightness: Brightness.dark,
-      ),
-      dark: true,
-    );
-    expect(AppColors.accent, AppColors.darkAccent);
+    expect(ls.text.computeLuminance(), lessThan(ds.text.computeLuminance()));
+    expect(l.colorScheme.primary, isNot(d.colorScheme.primary));
   });
 }

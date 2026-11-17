@@ -16,10 +16,13 @@ import 'tool_line.dart';
 /// 折叠之后那一轮显示成一行：
 ///
 /// ```
-/// ⚙ 执行了 12 步 · 1 个失败                    ▸
+/// ⚙ 正在执行第 3 步 · linux pm clear ...      详情 ▸
+/// ✓ 执行了 12 步 · 18 秒 · 1 个失败            详情 ▸
 /// ```
 ///
-/// 一行就把"做了多少、有没有问题"说完了。要追细节再点开。
+/// 一行就把"做了多少、现在在干嘛、花了多久、有没有问题"说完了。
+/// 要追细节再点「详情」展开。这正是主流 agent 的过程面板：
+/// 默认只有一条进度摘要，展开才看到每一条命令和它的输出。
 ///
 /// ## 为什么**单步也折叠**（2026-10-15 改的）
 ///
@@ -169,6 +172,45 @@ class _ToolStepGroupState extends State<ToolStepGroup> {
       .where((ToolInvocation t) => t.status == InvocationStatus.running)
       .length;
 
+  /// 当前正在跑的那一步（并行时有多个，取最后加进来的那个）。
+  ///
+  /// 折叠状态下这一行是**唯一的进度来源**，只写「正在执行第 3 步」
+  /// 等于什么都没说；带上"在跑哪个工具、参数是什么"才像市面上
+  /// agent 的过程条：不点开也知道它此刻在干什么。
+  ToolInvocation? get _current {
+    for (int i = widget.tools.length - 1; i >= 0; i--) {
+      if (widget.tools[i].status == InvocationStatus.running) {
+        return widget.tools[i];
+      }
+    }
+    return null;
+  }
+
+  /// 这一组从第一步开始到最后一步结束一共花了多久。
+  ///
+  /// 时间戳是性能面板顺手记的，老会话可能没有 —— 那就返回 null，
+  /// 不编一个「0 秒」出来。还在跑的时候用当前时刻当终点，
+  /// 数字会跟着聊天页的流式重建往上走。
+  String? _humanDuration() {
+    DateTime? first;
+    DateTime? last;
+    for (final ToolInvocation t in widget.tools) {
+      final DateTime? a = t.startedAt;
+      if (a != null && (first == null || a.isBefore(first))) first = a;
+      final DateTime? b = t.finishedAt;
+      if (b != null && (last == null || b.isAfter(last))) last = b;
+    }
+    if (first == null) return null;
+    final int ms = (last ?? DateTime.now()).difference(first).inMilliseconds;
+    if (ms <= 0) return null;
+    if (ms < 1000) return '不到 1 秒';
+    final double sec = ms / 1000.0;
+    if (sec < 60) return '${sec.toStringAsFixed(sec < 10 ? 1 : 0)} 秒';
+    final int m = ms ~/ 60000;
+    final int r = (ms % 60000) ~/ 1000;
+    return r == 0 ? '$m 分' : '$m 分 $r 秒';
+  }
+
   @override
   Widget build(BuildContext context) {
     final AppSurface s = AppSurface.of(context);
@@ -215,14 +257,27 @@ class _ToolStepGroupState extends State<ToolStepGroup> {
             child: ToolRow(
               iconNudge: toolIconNudge(headIcon),
               icon: Icon(headIcon, size: 15, color: headColor),
-              trailing: AnimatedRotation(
-                turns: _open ? 0.5 : 0,
-                duration: const Duration(milliseconds: 160),
-                child: Icon(
-                  Icons.expand_more_rounded,
-                  size: 17,
-                  color: s.muted,
-                ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  // 折叠时给一个明确的"这里能点开"的文字提示：
+                  // 只有一个小箭头时，很多人不知道整段过程是可以展开的。
+                  if (!_open)
+                    Text(
+                      '详情',
+                      style: AppFonts.body(size: 11, color: s.muted),
+                    ),
+                  const SizedBox(width: 2),
+                  AnimatedRotation(
+                    turns: _open ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 160),
+                    child: Icon(
+                      Icons.expand_more_rounded,
+                      size: 17,
+                      color: s.muted,
+                    ),
+                  ),
+                ],
               ),
               child: Text(
                 _summary(tools),
@@ -257,7 +312,7 @@ class _ToolStepGroupState extends State<ToolStepGroup> {
                   //     │
                   //     ├─ websearch
                   //     ├─ think
-                  //     └─ termux
+                  //     └─ linux
                   //
                   // 比原来"一行行平铺"多用了 16px 的左边距，但换来的
                   // 是**一眼看出这些步骤属于同一组** —— 平铺的行和正文
@@ -276,13 +331,28 @@ class _ToolStepGroupState extends State<ToolStepGroup> {
     );
   }
 
-  /// 一句话说清"做了多少、有没有问题"。
+  /// 一句话说清"做了多少、现在在干嘛、花了多久、有没有问题"。
+  ///
+  /// 折叠之后这一行要同时承担四件事，因为底下那些步骤默认全看不见：
+  ///   · 数量：执行了 N 步 / 正在执行第 N 步；
+  ///   · 进度：跑着的时候带上当前工具名与一行摘要；
+  ///   · 耗时：结束后写进这一行，展开就不用为了看个时间再点一次；
+  ///   · 异常：有失败时保留红色文字（见 [build] 里的 headColor）。
   String _summary(List<ToolInvocation> tools) {
     final StringBuffer sb = StringBuffer();
     if (_running > 0) {
       sb.write('正在执行第 ${tools.length} 步');
+      final ToolInvocation? cur = _current;
+      if (cur != null) {
+        final (_, String label) = ToolDisplay.of(cur.name);
+        final String arg = toolCallSummary(cur);
+        sb.write(' · $label');
+        if (arg != '（无参数）') sb.write(' $arg');
+      }
     } else {
       sb.write('执行了 ${tools.length} 步');
+      final String? duration = _humanDuration();
+      if (duration != null) sb.write(' · $duration');
     }
     if (_failed > 0) sb.write(' · $_failed 个失败');
     return sb.toString();

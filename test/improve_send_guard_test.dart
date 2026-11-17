@@ -16,7 +16,6 @@ import 'package:dsh_agent/core/models.dart';
 import 'package:dsh_agent/core/productivity.dart';
 import 'package:dsh_agent/core/store.dart';
 import 'package:dsh_agent/plugins/plugin.dart';
-import 'package:dsh_agent/shizuku/shizuku_service.dart';
 import 'package:dsh_agent/theme/app_theme.dart';
 import 'package:dsh_agent/ui/chat_page.dart';
 import 'package:flutter/material.dart';
@@ -61,7 +60,6 @@ void main() {
             settings: settings,
             conversations: conversations,
             plugins: plugins,
-            shizuku: ShizukuService(),
             workDir: tmp.path,
             notes: NoteStore(File('${tmp.path}/notes.json')),
             tasks: TaskStore(File('${tmp.path}/tasks.json')),

@@ -78,6 +78,9 @@ const Map<String, String> _simpleMacros = <String, String>{
   r'\underparen': r'\underbrace',
   r'\newline': r'\\',
   r'\linebreak': r'\\',
+  // 纯排版开关：包里没有这些概念，删掉不影响公式本身。
+  r'\mathstrut': '',
+  r'\strut': '',
 };
 
 /// 把模型输出规整成 `flutter_math_fork` 能解析的写法。
@@ -92,6 +95,31 @@ String normalizeLatex(String src) {
   s = s.replaceAll(RegExp(r'\\label\s*\{[^{}]*\}'), '');
   s = s.replaceAll(RegExp(r'\\(?:nonumber|notag|allowbreak|nobreak)\b'), '');
   s = s.replaceAll(RegExp(r'\\(?:limits|nolimits)\b'), '');
+
+  // ---- 1.5 排版样式开关 ----
+  //
+  // 模型很爱写 `\displaystyle`（想要大号分式）。KaTeX 里有这个概念，
+  // 但 `flutter_math_fork` 不认 —— 留着它整条公式直接解析失败，
+  // 用户看到的就是"$$ \displaystyle \frac{...} $$ 没渲染"。
+  // 删掉之后分式按默认字号渲染，观感差别很小，能显示才是第一位。
+  s = s.replaceAll(
+    RegExp(r'\\(?:displaystyle|textstyle|scriptstyle|scriptscriptstyle)\b'),
+    '',
+  );
+  // 间距类命令带参数，直接整段丢掉（不影响公式内容）
+  s = s.replaceAll(RegExp(r'\\(?:hspace|vspace)\*?\s*\{[^{}]*\}'), '');
+  s = s.replaceAll(
+    RegExp(r'\\(?:phantom|hphantom|vphantom)\s*\{[^{}]*\}'),
+    '',
+  );
+  // `\smash{x}` 只是"允许溢出"，保留内容即可
+  s = _replaceBraced(s, r'\smash', (String x) => x);
+  // `\dddot` 包不认识：用三个点叠在字母上方近似
+  s = _replaceBraced(
+    s,
+    r'\dddot',
+    (String x) => '\\overset{\\cdot\\cdot\\cdot}{$x}',
+  );
 
   // ---- 2. `\\[2mm]` 这种换行间距：包不认方括号参数 ----
   s = s.replaceAll(RegExp(r'\\\\\s*\[[^\]]*\]'), r'\\');

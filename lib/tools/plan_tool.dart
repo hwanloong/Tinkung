@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../core/models.dart';
 import 'tool.dart';
 
@@ -80,6 +82,13 @@ class PlanStore {
   /// 内存缓存，避免每轮都读盘。
   final Map<String, List<PlanNode>> _cache = <String, List<PlanNode>>{};
 
+  /// 计划每次落盘都会 +1，聊天页据此刷新底部那张计划表。
+  ///
+  /// 用 `ValueNotifier` 而不是让聊天页定时轮询：计划只在 `plan` 工具
+  /// `set` / `update` / `clear` 时变，事件驱动既省电也不会慢半拍 ——
+  /// 模型回填 `done` 的那一瞬间，底部已经打上勾了。
+  final ValueNotifier<int> revision = ValueNotifier<int>(0);
+
   /// 从磁盘补一次（工具第一次碰到某个会话时调）。
   Future<List<PlanNode>> nodesOf(String convId, String workDir) async {
     final List<PlanNode>? cached = _cache[convId];
@@ -106,6 +115,8 @@ class PlanStore {
 
   Future<void> save(String convId, String workDir, List<PlanNode> nodes) async {
     _cache[convId] = nodes;
+    // 先通知界面，再写盘：写盘失败也不该让计划表停在上一帧。
+    revision.value++;
     try {
       final File f = _file(convId, workDir);
       await f.parent.create(recursive: true);

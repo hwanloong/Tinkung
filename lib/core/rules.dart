@@ -62,7 +62,7 @@ class CustomRule {
 ///
 /// 做成单例：规则要在**系统提示词构建时**读到，而那条路径在
 /// `AgentRunner` 深处，把它从 main 一路透传下来要改十几个文件。
-/// 同项目里 `PythonService` / `TermuxService` 也是这个模式，保持一致。
+/// 同项目里 `PythonService` / `LinuxService` 也是这个模式，保持一致。
 class RuleStore extends ChangeNotifier {
   RuleStore._(this._file);
 

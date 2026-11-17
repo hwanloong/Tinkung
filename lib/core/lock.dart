@@ -36,7 +36,7 @@ enum LockScope {
   /// 工具（打开工具清单 / 自定义工具）。
   tools('tools', '工具', '含自定义工具与命令'),
 
-  /// 敏感权限（无障碍、通知读取、Shizuku 等）。
+  /// 敏感权限（通知读取、悬浮窗等）。
   permissions('permissions', '敏感权限', '含系统级授权');
 
   const LockScope(this.id, this.label, this.note);

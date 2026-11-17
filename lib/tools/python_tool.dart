@@ -2,20 +2,20 @@ import '../core/models.dart';
 import '../core/python.dart';
 import 'tool.dart';
 
-/// 内嵌 Python 工具。
+/// Python 工具（跑在内置 Alpine 里）。
 ///
 /// **这是整个应用能力最强的一个工具**：它让 agent 能写代码并**立刻运行验证**。
 ///
 /// 没有它的时候，agent 只能把代码写给你，你自己去跑、自己看报错、自己回来告诉它；
 /// 有了它，agent 能自己发现代码跑不通、自己改、再跑 —— 从"给建议"变成"交付"。
 ///
-/// 和 `termux` 的区别：
-/// · `termux` 是**完整的 Linux 环境**（有 git、ffmpeg、clang、包管理），
-///   但需要用户自己装 Termux 并配置
-/// · `python` 是**应用自带的解释器**，用户零配置，但只有 Python 和已装的库
+/// 和 `linux` 的分工：
+/// · `python` 只管"跑一段 Python"：省掉 `cd /shared && python3 -` 的样板，
+///   默认工作目录是 `/shared`，返回结构化的 traceback
+/// · `linux` 是**完整的 shell**：装包、跑别的语言、串管道都用它
 ///
-/// 两者不冲突：简单计算/数据处理用 `python`（快、无需配置），
-/// 需要外部工具链时用 `termux`。
+/// 两者共用同一个 Alpine 环境（同一个 `python3`），所以这里装过的包
+/// 在 `linux` 里也看得见。
 class PythonTool extends AgentTool {
   const PythonTool();
 
@@ -27,23 +27,19 @@ class PythonTool extends AgentTool {
 
   @override
   String get description =>
-      '执行 Python 代码并拿到输出。**这是应用自带的解释器，不需要任何配置。**\n'
+      '执行 Python 代码并拿到输出。解释器在内置 Alpine 里，'
+      '**第一次运行会自动 `apk add python3`，不需要用户配置。**\n'
       '什么时候用：\n'
       '· 需要精确计算（大数、浮点、循环、统计）—— 别自己心算，写代码跑\n'
       '· 文本处理、正则、编码转换、JSON/CSV 整理\n'
       '· 写一段脚本验证某个想法对不对\n'
-      '⚠️ **能力边界（很重要）**：\n'
-      '· **只有标准库 + 内置的少数几个库，不能安装任何东西**：没有 pip，'
-      '`pip install` / `apk` / `apt` 一律无效\n'
-      '· `numpy` / `pandas` / `matplotlib` / `Pillow` / `scipy` 这类第三方库'
-      '**不可用**，import 会 ModuleNotFoundError —— 不要反复重试\n'
-      '· **要画图、要用第三方库，改用 `termux`（内置 Alpine）**：'
-      '先 `apk add python3 py3-matplotlib py3-numpy`，再用里面的 python3 跑，'
-      '图片写进 `/shared`\n'
       '注意：\n'
-      '· **会话是连续的**：上一次定义的变量这一次还在，像 REPL 一样。'
-      '要清空就用 reset=true\n'
-      '· 返回的是 print 出来的内容。最后一行是表达式的话会自动显示它的值\n'
+      '· 默认工作目录是 `/shared`（手机文件管理器能看到这个目录）\n'
+      '· **每次运行都是独立进程**：上一次定义的变量不会保留，'
+      '所有代码要写成完整脚本（import 也每次都要写）\n'
+      '· 需要第三方库时先用 `linux` 跑 `apk add py3-numpy py3-matplotlib` 之类，'
+      '再回到这里 import；也可以用 `linux` 直接跑\n'
+      '· 返回的是 print 出来的内容；末尾表达式不会自动回显，要打印它\n'
       '· 报错会带上完整的 traceback —— **仔细看它，它能告诉你哪一行错了**';
 
   @override
@@ -52,11 +48,7 @@ class PythonTool extends AgentTool {
     'properties': <String, dynamic>{
       'code': <String, dynamic>{
         'type': 'string',
-        'description': '要执行的 Python 代码。可以多行。',
-      },
-      'reset': <String, dynamic>{
-        'type': 'boolean',
-        'description': 'true 时先清空之前定义的变量，从头开始。默认 false。',
+        'description': '要执行的 Python 代码。可以多行；每次都是独立进程。',
       },
     },
     'required': <String>['code'],
@@ -67,20 +59,14 @@ class PythonTool extends AgentTool {
     return PythonRisk.classify(args.str('code'));
   }
 
-  /// **Python 直接执行，不弹确认框。**
+  /// **Python 不自动放行。**
   ///
-  /// 这是用户明确要求的取舍，理由站得住：
-  /// · Python 工具的价值就在"自己写、自己跑、自己看报错、自己改"这个闭环。
-  ///   每跑一次都要点一下确认，这个闭环就断了 —— 模型改一行代码要等一次人工，
-  ///   用户实际上得到的是一个"需要伺候的 REPL"，不是 agent。
-  /// · 它跑在**应用自己的进程**里，碰不到 Shizuku 那套系统能力；能碰到的
-  ///   最多是本应用的数据文件。真正危险的是 shell / Termux 那种能操作系统的东西。
-  ///
-  /// 但**风险等级照实报**（见 [autoApprove] 的注释）：工具行上该是红点还是红点，
-  /// 用户仍然能一眼看出刚才那段代码干了什么。关掉的只是"要不要点一下"，
-  /// 不是"要不要告诉用户"。
+  /// 以前它是自动执行的：那时解释器跑在应用进程里，碰不到系统级能力。
+  /// 现在代码交给内置 Alpine 的 `python3`，能读写 `/shared`、联网、
+  /// 起子进程 —— 和终端里敲命令是同一档风险，所以必须和 `linux` 一样
+  /// 走确认流程。风险等级也照实报（见 [PythonRisk]）。
   @override
-  bool get autoApprove => true;
+  bool get autoApprove => false;
 
   @override
   String summarize(Map<String, dynamic> args) {
@@ -93,26 +79,20 @@ class PythonTool extends AgentTool {
     final PythonService py = PythonService.instance;
 
     // 不可用时**也要给出可诊断的信息**，而不是一句"用不了"。
-    // 这条路径以前根本走不到（工具会被藏起来），所以没人在意它的措辞；
-    // 现在工具无条件注册，这里就是用户唯一能看到原因的地方。
     if (!py.available && py.lastError != null) {
-      return '内嵌 Python 不可用：${py.lastError}\n\n'
-          '排查方向（这是应用自带解释器，**不需要用户装任何东西**，'
-          '所以问题一定在构建或运行期）：\n'
-          '· 打开「设置 → Python 控制台」看具体报错 —— 那里有完整信息\n'
-          '· 如果报 UnsatisfiedLinkError / SoLoader 之类：原生库没加载成功，'
-          '通常是 ABI 不匹配（本应用只出 arm64-v8a 和 x86_64）\n'
-          '· 如果报 ModuleNotFoundError: dsh_runner：Python 源码没打进包\n'
-          '· 把上面这段原文告诉用户，让他反馈';
+      return 'Python 暂时不可用：${py.lastError}\n\n'
+          '它是内置 Alpine 里的 `python3`，首次使用会自动安装，'
+          '所以常见原因只有两类：\n'
+          '· Alpine 环境还没解压完 → 稍等几秒重试\n'
+          '· 安装 python3 时没网 → 连上网后重试，'
+          '或用 `linux` 手动跑 `apk add --no-cache python3`\n'
+          '打开「设置 → Python 控制台」能看到最近一次的真实报错。';
     }
 
     final String code = args.str('code');
     if (code.trim().isEmpty) return '错误：缺少 code';
 
-    final PyResult r = await py.run(
-      code,
-      reset: args.boolVal('reset', fallback: false),
-    );
+    final PyResult r = await py.run(code);
 
     if (r.ok) {
       final String out = r.output.trim();
@@ -139,8 +119,8 @@ class PythonTool extends AgentTool {
 
 /// Python 代码的风险分级。
 ///
-/// **这个工具比 shell 危险等级更高** —— 它不经过 Android 的权限模型，
-/// 直接在应用进程里跑，能读写应用能碰的一切（包括笔记、会话、API Key 文件）。
+/// **这个工具和 `linux` 是同一档风险** —— 代码既然跑在 Alpine 里，
+/// 它就能读写 /shared、能联网、能起子进程，和终端里敲命令没有本质区别。
 ///
 /// 所以策略是**明显更保守**：
 /// · 只读、纯计算 → 自动执行

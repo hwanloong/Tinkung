@@ -1,13 +1,14 @@
 # Tinkung 工程手册
 
 这份文档写的是这个工程实际有什么、能做到哪一步、代码放在哪里。
-产品介绍在 [README.md](../README.md)，依赖许可见 [THIRD-PARTY.md](../THIRD-PARTY.md)。
+产品介绍在 [README.md](../README.md)，依赖许可见 [THIRD-PARTY.md](../THIRD-PARTY.md)，
+分层栈与模块全景图见 [架构图](ARCHITECTURE.md)。
 
 ---
 
 ## 一、这是什么
 
-Tinkung 是跑在 Android 手机上的 AI Agent，包名 `dsh_agent`，当前版本 3.0.0+1081。
+Tinkung 是跑在 Android 手机上的 AI Agent，Android applicationId 为 `com.agt.tk.hwl`，Dart package 为 `dsh_agent`，当前版本 3.0.0+1081。
 
 它不是聊天客户端加一层壳，差别在工具：模型可以真的执行 shell 命令、管理应用、
 读写文件、改系统设置、截屏、操作界面控件，也可以运行内置的 Python 写代码验证结果。
@@ -33,20 +34,16 @@ Tinkung 是跑在 Android 手机上的 AI Agent，包名 `dsh_agent`，当前版
 
 ### 工具
 
-当前注册 36 个工具，按能力分成几组：
+当前注册三十来个工具，按能力分成几组：
 
-系统操作（需要 Shizuku）：`run_shell`、`app_manage`、`file_op`、`system_settings`、`screen_capture`。
+执行环境（内置 Alpine）：`linux`（任意命令、`apk add`）、`python`（Alpine 里的 `python3`）、
+`sheller`（跑一段 sh/py，大内容用句柄喂进去）。
 
 联网：`web`、`browser`、`read_image`。
 
 本机数据：`notes`、`tasks`、`memory`、`rules`、`learn`、`varbank`、`recall`、`mark`。
 
-运行环境：`python`（内置 CPython 3.13）、`termux`（Termux 或内置 Alpine）。
-
-界面：`ui_tree`、`ui_action`、`draw_path`，走无障碍服务，可以读控件树、
-点按钮、画路径。
-
-文件编辑：`reader`、`writer`、`filesearch`、`geter`、`sheller`。
+本机文件：`file_op`（`dart:io`，不启动 Linux）、`reader`、`writer`、`filesearch`、`geter`。
 `writer` 是按段替换的，所以有"改之前必须先读"的硬约束，没读过就拒绝执行。
 
 其他：`pc`（连电脑上的 `pc_agent.exe`）、`plan`（多步任务拆节点）、
@@ -76,7 +73,8 @@ Tinkung 是跑在 Android 手机上的 AI Agent，包名 `dsh_agent`，当前版
 设置是条目式的，没有卡片。侧边栏是 Tinkung 的形态，历史按置顶 / 今天 /
 昨天 / 更早分组，当前会话用强调色标出。
 
-强调色是 Claude 橙 `#D97757`，字体是 Inter（拉丁）+ 系统字体（中文）。
+强调色是 Claude 橙 `#D97757`；字体默认 Inter（拉丁）+ 系统字体（中文），
+代码用系统等宽 —— 设置 → 外观 → 字体里可以分别换这三套，也能导入字体文件。
 
 ---
 
@@ -99,16 +97,17 @@ Tinkung 是跑在 Android 手机上的 AI Agent，包名 `dsh_agent`，当前版
 **模型不支持图片时识图会降级。** 选 `deepseek-v4-pro` 这类不能接图的模型时，
 图片走本地 OCR，能拿到文字，拿不到画面理解。
 
-**APK 123.6 MB。** 内嵌的 CPython 3.13 加上科学计算和文档类 wheel 占了大头，
-Chaquopy 在构建期把包固化进去，运行期没有 pip。想减只能删包。
+**APK 约 70 MB。** Flutter 引擎、ML Kit 模型、Alpine rootfs 和 proot 原生库占了大头。
+不再内嵌 CPython（Python 走 Alpine），需要第三方库时用 `apk add`。
 
 **签名回退。** `android/key.properties` 存在时用项目密钥，不存在时退回调试签名；
 调试密钥随机器变，换了签名的包装不上去。本机有这个文件，所以出的是正式签名包。
 
 **导出默认不含 API Key。** 换设备要手填一次。
 
-**中文靠系统字体。** Inter 没有 CJK 字形，中文由 `sans-serif` 兜底，
-不同 ROM 的字形和字重会不一样，深色下的观感也跟着 ROM 走。
+**中文默认靠系统字体。** Inter 没有 CJK 字形，中文由兜底链接住，
+不同 ROM 的字形和字重会不一样。可以在字体设置里换成宋体 / 等宽，
+或导入自己的中文字体文件。
 
 **远程 / 多窗口没有。** 只有单设备单窗口。横屏支持分栏，但那是同一台设备上的分栏。
 
@@ -141,9 +140,8 @@ flutter build apk --release
 |---|---|---|
 | AGP | 9.1.0 | 整条构建链按它验证；9 移除了旧的 proguard 默认文件接口 |
 | Kotlin | 2.4.0 | `compilerOptions` 扩展依赖这个版本 |
-| Chaquopy | 17.0.0 | 同时支持 AGP 9.0–9.2 和 settings.gradle 里的插件声明 |
 | minSdk | 26 | 用到前台服务和 MediaProjection 的新行为 |
-| ABI | arm64-v8a + x86_64 | Chaquopy 从 Python 3.12 起不支持 32 位 |
+| ABI | arm64-v8a + x86_64 | proot / Alpine 资源按这两个 ABI 打包 |
 
 不要用 `splits` 出分架构包。AGP 9 默认启用 `android.newDsl=true`，`splits`
 在这一层不被支持，会先报 `android{} is deprecated` 再连锁失败。只能用 `ndk.abiFilters`。
@@ -164,25 +162,23 @@ flutter build apk --release
 lib/
 ├── main.dart                启动
 ├── ai/                      AgentRunner 主循环、API 客户端、改写、联想
-├── core/                    52 个文件：模型、存储、平台适配
-├── tools/                   38 个文件，36 个已注册工具
-├── ui/                      51 个文件：页面和组件
+├── core/                    模型、存储、Linux/Python 适配
+├── tools/                   工具实现（linux / python / 文件 / 联网 / 数据）
+├── ui/                      页面和组件
 ├── theme/                   字体、颜色、圆角、AppSurface
 ├── cwt/                     思维重写 + Office/PDF 预览
 ├── interaction/             互动面板（内嵌 WebView）
 ├── knowledge/               文档解析、切片、向量、检索
 ├── mcp/                     MCP 客户端与配置
-├── plugins/                 自定义插件
-└── shizuku/                 Shizuku 封装
+└── plugins/                 自定义插件
 ```
 
-`lib/` 下共 164 个 Dart 文件。最大的是 `ui/chat_page.dart`（292 KB），
+`lib/` 下共 163 个 Dart 文件。最大的是 `ui/chat_page.dart`（292 KB），
 其次是 `tools/web_session.dart`、`ai/agent.dart`、`ui/settings_sheet.dart`。
 
-原生侧 17 个 Kotlin 文件在 `android/app/src/main/kotlin/com/dsh/dsh_agent/`，
-主要的几个是 `MainActivity.kt`（通道注册）、`ShizukuBridge.kt`（执行命令）、
-`AgentAccessibilityService.kt`（无障碍）、`LinuxRuntime.kt`（proot + Alpine）、
-`SpeechBridge.kt`（语音）。
+原生侧 Kotlin 文件在 `android/app/src/main/kotlin/com/agt/tk/hwl/`，
+主要的几个是 `MainActivity.kt`（通道注册）、`LinuxRuntime.kt`（proot + Alpine）、
+`OverlayConfirm.kt`（悬浮窗）、`SpeechBridge.kt`（语音）。
 
 ---
 
@@ -235,16 +231,14 @@ abstract class AgentTool {
 `timeout` 是兜底，不是给慢工具调时间的开关。任何一次调用卡住，主循环就停在
 `await` 上，用户看到的是转圈，停止按钮也掐不掉。需要跑更久的工具自己覆盖它。
 
-工具表在 `ChatPage._buildRegistry()` 里组装，每场对话一份。注册分三类：
+工具表在 `ChatPage._buildRegistry()` 里组装，每场对话一份。注册分两类：
 
-依赖 Shizuku 的五个只在 `shizuku.ready` 时注册，否则模型会反复调用、
-拿到一堆"无法执行"，白白浪费轮次。
+纯本地的（`file_op`、`open_file`、`get_location`、`web`、`browser`、笔记 / 任务 / 记忆 /
+规则 / 学习）无条件注册。
 
-依赖别的东西但能给出下一步的（无障碍、Python、Linux、生图、电脑）一律无条件注册。
-它们不可用时会自己返回一句可操作的提示，比如"去设置里点一下安装"。
+依赖运行环境的（`linux`、`python`、生图、电脑）也一律无条件注册。
+它们不可用时会自己返回一句可操作的提示，比如"环境还在解压，几秒后重试"。
 工具不在表里的时候，模型只会说"我没有这个能力"，用户不知道真正的原因。
-
-纯本地的（`open_file`、`get_location`、`web`、`browser`）无条件注册。
 
 风险等级和是否跳过确认是两件事。`riskFor` 决定颜色、日志和工具卡片上的标记，
 `autoApprove` 决定要不要让用户点一下。设置里的"自动放行安全操作"只关后者，
@@ -371,7 +365,7 @@ flutter test test/ui_preview_test.dart --update-goldens
 flutter test test/markdown_preview_test.dart --update-goldens
 ```
 
-当前 81 个测试文件、717 项测试、39 张预览图，产物在 `test/goldens/`。
+当前 77 个测试文件、705 项测试、39 张预览图，产物在 `test/goldens/`。
 
 预览图是用真实控件渲染的，走的是 `flutter_test` 的渲染管线，不是 HTML 模拟稿。
 字体必须显式注册（`test/preview_fonts.dart`），测试环境里没有系统字体，
@@ -423,9 +417,11 @@ flutter test test/markdown_preview_test.dart --update-goldens
 | 系统提示词 | `lib/ai/agent.dart`，搜「系统提示词」 |
 | 工具注册 | `lib/ui/chat_page.dart` 的 `_buildRegistry()` |
 | 设置字段 | `lib/core/store.dart` 的 `Settings` |
-| 颜色 / 圆角 / 字体 | `lib/theme/app_theme.dart` |
+| 颜色 / 圆角 / 字体机制 | `lib/theme/app_theme.dart`（`AppFonts`） |
+| 字体选项与字体设置页 | `lib/theme/font_options.dart` / `lib/ui/font_settings_page.dart` |
+| 自定义字体加载 | `lib/core/custom_font.dart` |
 | 消息气泡 / 工具卡片 / 附件 | `lib/ui/widgets.dart` |
 | 输入框布局 | `lib/ui/chat_page.dart` 的 `_inputField()` 和 `_composerGlass()` |
 | 上下文压缩 | `lib/ai/agent.dart` 的 `buildApiMessages()` |
-| 原生通道 | `android/app/src/main/kotlin/com/dsh/dsh_agent/MainActivity.kt` |
+| 原生通道 | `android/app/src/main/kotlin/com/agt/tk/hwl/MainActivity.kt` |
 | 界面预览图 | `test/goldens/` |

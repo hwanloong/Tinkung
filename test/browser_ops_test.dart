@@ -13,7 +13,6 @@ import 'dart:typed_data';
 import 'package:dsh_agent/core/models.dart';
 import 'package:dsh_agent/core/productivity.dart';
 import 'package:dsh_agent/core/store.dart';
-import 'package:dsh_agent/shizuku/shizuku_service.dart';
 import 'package:dsh_agent/tools/browser_tool.dart';
 import 'package:dsh_agent/tools/tool.dart';
 import 'package:dsh_agent/tools/web_session.dart';
@@ -24,7 +23,6 @@ import 'test_plugins.dart';
 
 ToolContext _ctx(Settings settings) => ToolContext(
   settings: settings,
-  shizuku: ShizukuService(),
   conversation: Conversation(id: 'c1', title: '测试'),
   workDir: '/tmp/dsh-test',
   searchApiKey: '',

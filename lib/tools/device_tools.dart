@@ -110,7 +110,7 @@ class LocationTool extends AgentTool {
       final bool granted = await PlatformFiles.requestLocationPermission();
       if (!granted) {
         return '取定位失败：用户没有授予定位权限。\n'
-            '（可以告诉用户到「系统设置 → 应用 → Zeus → 权限」里'
+            '（可以告诉用户到「系统设置 → 应用 → Tinkung → 权限」里'
             '打开位置权限，然后重试。）';
       }
     }

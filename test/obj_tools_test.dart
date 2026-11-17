@@ -12,7 +12,6 @@ import 'package:dsh_agent/core/productivity.dart';
 import 'package:dsh_agent/core/resolver.dart';
 import 'package:dsh_agent/core/store.dart';
 import 'package:dsh_agent/plugins/plugin.dart';
-import 'package:dsh_agent/shizuku/shizuku_service.dart';
 import 'package:dsh_agent/tools/obj_tools.dart';
 import 'package:dsh_agent/tools/tool.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,7 +20,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// 一个够用的 ToolContext：这几个工具只用得到 `workDir`。
 ToolContext _ctx(Settings settings, String workDir) => ToolContext(
   settings: settings,
-  shizuku: ShizukuService(),
   conversation: Conversation(id: 'c', title: 't'),
   workDir: workDir,
   searchApiKey: '',

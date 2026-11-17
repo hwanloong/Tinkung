@@ -81,6 +81,26 @@ void main() {
       expect(_parses(r'\displaylines{a \\ b}'), isTrue);
     });
 
+    test('排版开关与冷门宏（模型真实会写）', () {
+      // `\displaystyle` 是"公式渲染失败"最常见的元凶：包不认这个开关，
+      // 留着它整条公式解析失败。
+      expect(_parses(r'\displaystyle \frac{1}{2}'), isTrue);
+      expect(
+        normalizeLatex(r'\displaystyle \frac{1}{2}'),
+        isNot(contains('displaystyle')),
+      );
+      expect(_parses(r'\textstyle x + y'), isTrue);
+      expect(_parses(r'\scriptstyle x'), isTrue);
+      expect(_parses(r'\smash{x}'), isTrue);
+      expect(_parses(r'\dddot{x}'), isTrue);
+      expect(_parses(r'x \hspace{1em} y'), isTrue);
+      expect(_parses(r'x \vspace{1em} y'), isTrue);
+      expect(_parses(r'\phantom{x}y'), isTrue);
+      expect(_parses(r'x\mathstrut'), isTrue);
+      // 展开后内容不能丢
+      expect(normalizeLatex(r'\smash{x^2}'), contains('x^2'));
+    });
+
     test('原来的正常公式不被改坏', () {
       for (final String src in <String>[
         r'E = mc^2',

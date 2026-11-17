@@ -9,7 +9,6 @@ import 'package:dsh_agent/core/models.dart';
 import 'package:dsh_agent/core/productivity.dart';
 import 'package:dsh_agent/core/store.dart';
 import 'package:dsh_agent/plugins/plugin.dart';
-import 'package:dsh_agent/shizuku/shizuku_service.dart';
 import 'package:dsh_agent/theme/app_theme.dart';
 import 'package:dsh_agent/ui/chat_page.dart';
 import 'package:flutter/material.dart';
@@ -55,7 +54,6 @@ void main() {
             settings: settings,
             conversations: conversations,
             plugins: plugins,
-            shizuku: ShizukuService(),
             workDir: tmp.path,
             notes: NoteStore(File('${tmp.path}/notes.json')),
             tasks: TaskStore(File('${tmp.path}/tasks.json')),
@@ -110,7 +108,7 @@ void main() {
 
     expect(find.text('这条用户消息要删掉'), findsNothing);
     expect(conv.messages, isEmpty);
-    expect(find.text('直接说你要做什么'), findsOneWidget, reason: '空会话要回到新界面');
+    expect(find.text('做点什么'), findsOneWidget, reason: '空会话要回到新界面');
   });
 
   testWidgets('只能从最新一段删：点旧消息只提示，不弹确认', (WidgetTester tester) async {

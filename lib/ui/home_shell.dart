@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../core/productivity.dart';
 import '../core/store.dart';
 import '../plugins/plugin.dart';
-import '../shizuku/shizuku_service.dart';
 import '../theme/app_theme.dart';
 import 'app_drawer.dart';
 import 'chat_page.dart';
@@ -33,7 +32,6 @@ class HomeShell extends StatelessWidget {
     required this.settings,
     required this.conversations,
     required this.plugins,
-    required this.shizuku,
     required this.workDir,
     required this.notes,
     required this.tasks,
@@ -42,7 +40,6 @@ class HomeShell extends StatelessWidget {
   final Settings settings;
   final ConversationStore conversations;
   final PluginStore plugins;
-  final ShizukuService shizuku;
   final String workDir;
   final NoteStore notes;
   final TaskStore tasks;
@@ -70,7 +67,6 @@ class HomeShell extends StatelessWidget {
       settings: settings,
       conversations: conversations,
       plugins: plugins,
-      shizuku: shizuku,
       workDir: workDir,
       notes: notes,
       tasks: tasks,
@@ -78,7 +74,6 @@ class HomeShell extends StatelessWidget {
         settings: settings,
         conversations: conversations,
         plugins: plugins,
-        shizuku: shizuku,
         workDir: workDir,
         notes: notes,
         tasks: tasks,

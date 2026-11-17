@@ -15,10 +15,10 @@ void main() {
     test('认得出常见的生成物路径', () {
       const String text =
           '已生成图片并保存到：'
-          '/data/user/0/com.dsh.dsh_agent/files/images/gen_1700000000.png'
+          '/data/user/0/com.agt.tk.hwl/files/images/gen_1700000000.png'
           '（320 KB）';
       expect(GeneratedFiles.extract(text), <String>[
-        '/data/user/0/com.dsh.dsh_agent/files/images/gen_1700000000.png',
+        '/data/user/0/com.agt.tk.hwl/files/images/gen_1700000000.png',
       ]);
     });
 

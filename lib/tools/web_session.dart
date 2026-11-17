@@ -2049,7 +2049,7 @@ class WebSession {
       return StepResult.ok(
         'HTTP $status · $type · $size 字节（二进制）\n'
         '已保存到：${saved.path}\n'
-        '${saved.shared == null ? '' : '在 termux / 内置 Linux 里：${saved.shared}\n'}',
+        '${saved.shared == null ? '' : '在 Alpine 里：${saved.shared}\n'}',
       );
     }
 
@@ -2065,7 +2065,7 @@ class WebSession {
       return StepResult.ok(
         'HTTP $status · $type · $size 字符\n'
         '已保存到：${saved.path}\n'
-        '${saved.shared == null ? '' : '在 termux / 内置 Linux 里：${saved.shared}\n'}'
+        '${saved.shared == null ? '' : '在 Alpine 里：${saved.shared}\n'}'
         '\n开头一段：\n${text.substring(0, text.length > 900 ? 900 : text.length)}',
       );
     }
@@ -2180,7 +2180,7 @@ class WebSession {
         '已下载：$fname\n'
         '大小：${(bytes.length / 1024).round()} KB · 类型：${ct.isEmpty ? '未知' : ct}\n'
         '保存到：${saved.path}\n'
-        '${saved.shared == null ? '' : '在 termux / 内置 Linux 里：${saved.shared}\n'}',
+        '${saved.shared == null ? '' : '在 Alpine 里：${saved.shared}\n'}',
       );
     } catch (e) {
       return StepResult.fail(BrowserCode.unsupported, '下载出错：$e');
@@ -3254,7 +3254,7 @@ const String kSessionBootstrapJs = r'''
 ///
 /// 为什么每个动作都要能落盘：模型拿到的任何东西都是**上下文预算**，
 /// 一份九万字符的 HTML 塞进去，后面几轮都没法聊了。落盘之后它只需要
-/// 拿路径去交给 python / termux，正文留在磁盘上。
+/// 拿路径去交给 python / linux，正文留在磁盘上。
 class Artifacts {
   const Artifacts._();
 

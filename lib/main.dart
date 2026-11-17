@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -16,18 +17,19 @@ import 'core/productivity.dart';
 import 'core/python.dart';
 import 'core/rules.dart';
 import 'core/storage.dart';
-import 'core/folder_tool.dart';
+import 'core/skill.dart';
 import 'core/lock.dart';
 import 'core/notify_hub.dart';
 import 'core/obj_store.dart';
 import 'core/varbank.dart';
 import 'core/agent_doc.dart';
 import 'core/chat_recall.dart';
+import 'core/custom_font.dart';
+import 'core/linux.dart';
 import 'core/store.dart';
-import 'core/terminal_session.dart';
 import 'plugins/plugin.dart';
-import 'shizuku/shizuku_service.dart';
 import 'theme/app_theme.dart';
+import 'theme/font_options.dart';
 import 'ui/assistant_mode_page.dart';
 import 'ui/home_shell.dart';
 import 'ui/lock_ui.dart';
@@ -74,6 +76,11 @@ Future<void> main() async {
   final Settings settings = await settingsFuture;
   final Directory docs = await docsFuture;
 
+  // 用户导入的自定义字体必须在**首帧之前**加载完：
+  // 字体加载是异步的，晚一步第一帧就会用回退字形排版，之后即使加载好了
+  // 也不会自动重排（要等下一次整棵树重建）。
+  await _loadCustomFonts(settings);
+
   final ConversationStore conversations = ConversationStore(
     File('${docs.path}/conversations.json'),
   );
@@ -81,7 +88,6 @@ Future<void> main() async {
   final NoteStore notes = NoteStore(File('${docs.path}/notes.json'));
   final TaskStore tasks = TaskStore(File('${docs.path}/tasks.json'));
   appLock = LockStore(File('${docs.path}/lock.json'));
-  final ShizukuService shizuku = ShizukuService();
 
   // 会话历史和门禁**同时发车**：门禁等完才 `runApp`，历史继续在后台跑。
   final Future<void> conversationsLoaded = conversations.load();
@@ -98,7 +104,6 @@ Future<void> main() async {
       settings: settings,
       conversations: conversations,
       plugins: plugins,
-      shizuku: shizuku,
       defaultWorkDir: workDir,
       notes: notes,
       tasks: tasks,
@@ -144,10 +149,25 @@ Future<void> main() async {
       plugins: plugins,
       notes: notes,
       tasks: tasks,
-      shizuku: shizuku,
       workDir: workDir,
     );
   }());
+}
+
+/// 把设置里记录的三个自定义字体文件注册进引擎。
+///
+/// 失败不阻断启动：`CustomFont.loadFrom` 会把原因记在槽位里，
+/// 字体设置页能看到，界面则回落到选项里的系统族名。
+Future<void> _loadCustomFonts(Settings settings) async {
+  final Map<String, String> paths = <String, String>{
+    CustomFont.latin: settings.fontLatinPath,
+    CustomFont.cjk: settings.fontCjkPath,
+    CustomFont.code: settings.fontCodePath,
+  };
+  for (final MapEntry<String, String> e in paths.entries) {
+    if (e.value.trim().isEmpty) continue;
+    await CustomFont.loadFrom(e.key, e.value);
+  }
 }
 
 /// 首帧之后的后台预热。
@@ -160,7 +180,6 @@ void _warmUp({
   required PluginStore plugins,
   required NoteStore notes,
   required TaskStore tasks,
-  required ShizukuService shizuku,
   required String workDir,
 }) {
   Future<void>(() async {
@@ -170,8 +189,7 @@ void _warmUp({
       notes.load(),
       tasks.load(),
       NotifyHub.instance.load(File('${docs.path}/unread.json')),
-      TerminalSession.instance.loadPreferred(),
-      FolderToolStore.instance.configure(Directory('${docs.path}/tools')),
+      SkillStore.instance.configure(Directory('${docs.path}/tools')),
       RuleStore.configure(File('${docs.path}/rules.json')),
       MemoryStore.configure(File('${docs.path}/memory.json')),
       LearningStore.configure(File('${docs.path}/learning.json')),
@@ -185,7 +203,7 @@ void _warmUp({
     ]);
 
     // 工具目录铺内容比较慢（读资产、写文件），放最后且不 await。
-    unawaited(FolderToolStore.instance.seedFromAssets());
+    unawaited(SkillStore.instance.seedFromAssets());
     // 只给"启用了但还没成功发现过工具"的服务器补一次发现。
     unawaited(McpStore.instance.refreshMissing());
 
@@ -203,18 +221,14 @@ void _warmUp({
       await ObjStore.configure(Directory('${tmp.path}/objpool'));
     }());
 
-    // Shizuku 是一次 IPC，慢的时候能到几百毫秒；加载完会 notify，
-    // 有关联的工具/状态会自动出现。
-    unawaited(shizuku.init());
-
     // 启动时清理 7 天前的截图与录屏（工具的中间产物，用户不需要看见）。
     unawaited(StorageManager.clearOldCaptures(workDir, const Duration(days: 7)));
 
-    // 探测内嵌 Python：**首次调用会启动解释器，一两秒**，只影响工具注册。
-    //
-    // Termux 不在这里探：`ChatPage.initState` 已经会调一次
-    // `TermuxService.instance.refresh()`（它必须在会话开始前探完，见那边的
-    // 注释），两处都调等于每次启动多发一次 IPC、白等一个往返。
+    // Alpine 随应用自动安装：后台解压 rootfs，用户打开终端时通常已经好了。
+    unawaited(LinuxService.instance.ensureInstalled());
+
+    // 探测 Alpine 里的 Python；环境没装好时这里会直接跳过，
+    // 真正需要时由 PythonService.run 自动 apk add python3。
     unawaited(PythonService.instance.refresh());
   });
 }
@@ -225,7 +239,6 @@ class AgentApp extends StatelessWidget {
     required this.settings,
     required this.conversations,
     required this.plugins,
-    required this.shizuku,
     required this.defaultWorkDir,
     required this.notes,
     required this.tasks,
@@ -234,7 +247,6 @@ class AgentApp extends StatelessWidget {
   final Settings settings;
   final ConversationStore conversations;
   final PluginStore plugins;
-  final ShizukuService shizuku;
 
   /// 用户在设置里没指定工作空间时用的目录（应用外部私有目录下的 dsh）。
   final String defaultWorkDir;
@@ -251,19 +263,40 @@ class AgentApp extends StatelessWidget {
       builder: (BuildContext context, Widget? _) {
         // 字号必须在**构建主题之前**写进 AppFonts ——
         // 主题里的 textTheme 会读它，晚一步就还是旧字号。
-        // （字体族本身是常量，不需要在这里设。）
         AppFonts.userScale = settings.fontScale;
+
+        // 字体族同理，也必须在这一帧的主题构建之前写好。
+        // 解析失败（字体文件被删 / 老存档里的 id 已下线）时 resolveFont
+        // 会回落到第一项，界面照常打开。
+        final FontOption latin = resolveFont(
+          withCustom(kLatinFonts, CustomFont.latin),
+          settings.fontLatin,
+        );
+        final FontOption cjk = resolveFont(
+          withCustom(kCjkFonts, CustomFont.cjk),
+          settings.fontCjk,
+        );
+        final FontOption code = resolveFont(
+          withCustom(kCodeFonts, CustomFont.code),
+          settings.fontCode,
+        );
+        AppFonts.applyFonts(
+          latinFamily: latin.family ?? '',
+          cjkFamily: cjk.family ?? '',
+          codeFamily: code.family ?? '',
+          codeFallback: code.fallback,
+        );
         // 供"从代码里推出来的界面"写回设置用（见 app_nav.dart 的说明）。
         appSettings = settings;
         // 抓网页用哪套 UA（见 WebViewLoader.desktopUserAgent）。
         // 和字号同理：必须在**构建之前**写进去，晚一步这次抓取就还是旧 UA。
         WebViewLoader.useDesktopUa = settings.desktopUa;
 
-        // ---- 主题色不再可配 ----
+        // ---- 主题色由设置决定 ----
         //
-        // 界面固定成一套 **iOS 中性灰阶 + 系统蓝**（见 AppColors）。
-        // 种子色选择器已移除 —— 它能选出的配色会把整套表面也染色，
-        // 而"界面到处泛着一个色相"正是这一版要根治的东西。
+        // 种子色在设置里选（settings.themeSeed），整套 Material You 配色
+        // 由 AppTheme 从它生成；也可以选择跟随系统壁纸取色。
+        // 这里不直接写死颜色，改设置时整棵树随 AnimatedBuilder 重建。
 
         // ---- 把全局强调色/语义色对齐到**当前实际生效的那套主题** ----
         //
@@ -299,37 +332,38 @@ class AgentApp extends StatelessWidget {
             ? defaultWorkDir
             : settings.workspacePath.trim();
 
-        // ---- 品牌色 vs 系统壁纸取色 ----
+        // ---- Material You：种子色 or 系统壁纸取色 ----
         //
-        // `DynamicColorBuilder` 在 Android 12+ 会拿到系统按**壁纸**推出的两套
-        // ColorScheme。但这里**故意不使用**它。
+        // `themeSeed` 是用户在设置里选的种子色（0 = 默认陶土橙）。
+        // `followSystemColor` 打开时改用 Android 12+ 按壁纸推出的方案，
+        // 由下面的 DynamicColorBuilder 异步给到；桌面/旧设备拿不到时
+        // 它返回 null，自动回落到同一份种子色，不用自己做平台判断。
         //
-        // 原因：应用主色不该由用户的壁纸决定 —— 那是"系统主题"，
-        // 不是"应用主题"；而且它会让所有截图、文档、图标和应用内颜色
-        // 对不上，很难排查。现在主题色由**用户在设置里选**（见 themeSeed）。
+        // 两种情况都走 `AppTheme.light/dark(...)`：那里用 fromSeed 生成
+        // 整套 M3 token，并同步下发给 AppSurface 和 AppColors。
         //
-        // 保留 `DynamicColorBuilder` 的意义在于**知道系统有没有动态取色能力**：
-        // 结构留着，以后要开"跟随系统主题色"只需要把下面两行换成
-        // `AppTheme.light(fromSystem: lightDynamic)`。AppTheme 那条
-        // `fromSystem` 通路是完整可用的（M3 的整套 token 都会跟着走）。
-        //
-        // 放在 MaterialApp **外面**：主题是 MaterialApp 的参数，
-        // 取色要先把值拿到才能建主题。
-        // ---- 不再跟随系统壁纸取色（Material You）----
-        //
-        // 界面是**黑白 + 液态玻璃**：颜色来自玻璃背后的东西（模糊、折射、
-        // 高光），而不是一组由壁纸推导出来的彩色 token。开着动态色的话，
-        // 系统会给一套带紫/绿相位的灰，压在玻璃里会显出脏色 ——
-        // 而"黑白"正是这一版的整套语言。
-        return MaterialApp(
+        // 放在 MaterialApp **外面**：主题是它的参数，取色要先拿到值。
+        final Color seedColor = settings.themeSeed == 0
+            ? AppColors.defaultSeed
+            : Color(settings.themeSeed);
+        final bool followSystem = settings.followSystemColor;
+        return DynamicColorBuilder(
+          builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
+            return MaterialApp(
               title: 'Tinkung',
               // 工具要能"推一整页给用户看"（见 app_nav.dart 的说明）——
               // 最典型的是让用户去浏览器里登录。没有这个键，
               // 工具就只能回一句"请你自己打开浏览器"，而用户不知道该开哪个网址。
               navigatorKey: appNavigatorKey,
               debugShowCheckedModeBanner: false,
-              theme: AppTheme.light(),
-              darkTheme: AppTheme.dark(),
+              theme: AppTheme.light(
+                seed: seedColor,
+                fromSystem: followSystem ? lightDynamic : null,
+              ),
+              darkTheme: AppTheme.dark(
+                seed: seedColor,
+                fromSystem: followSystem ? darkDynamic : null,
+              ),
               // 跟随系统暗色模式
               themeMode: ThemeMode.system,
               // 系统栏（状态栏/导航栏）的图标颜色必须随主题走：
@@ -372,13 +406,14 @@ class AgentApp extends StatelessWidget {
                   settings: settings,
                   conversations: conversations,
                   plugins: plugins,
-                  shizuku: shizuku,
                   workDir: workDir,
                   notes: notes,
                   tasks: tasks,
                 ),
               ),
             );
+          },
+        );
       },
     );
   }

@@ -397,7 +397,7 @@ class BrowserTool extends AgentTool {
         'type': 'boolean',
         'description':
             'true 时把结果**存成文件**并返回路径 —— '
-            '拿到的内容要交给 python / termux / file_op 继续处理时用这个。'
+            '拿到的内容要交给 python / linux / file_op 继续处理时用这个。'
             '（cookies 会按 curl 的 cookies.txt 格式存。）',
       },
       'hint': <String, dynamic>{
@@ -541,7 +541,7 @@ class BrowserTool extends AgentTool {
     // ---- set_cookies：把 cookie **写进**浏览器 ----
     //
     // 为什么需要"写"：登录态迁移是最实用的一环 ——
-    //  · 你在内置浏览器里登录好了，把 cookie 导出给 termux 的 curl；
+    //  · 你在内置浏览器里登录好了，把 cookie 导出给 linux 里的 curl；
     //  · 反过来，你在别处（比如电脑上、或另一台设备）拿到的会话 token，
     //    写进来就能在这一页直接用；
     //  · 调试接口时手动换一个 token 试效果。
@@ -651,7 +651,7 @@ class BrowserTool extends AgentTool {
           '然后**结束这一轮**（不要在这里反复重试、也不要自己猜登录结果）。\n'
           '用户回复之后你就带着**已登录的 cookie** 继续：'
           '用 `dom` / `js` 读这一页，或 `cookies(save: true)` 导出给 '
-          'termux / python 用。';
+          'linux / python 用。';
     }
 
     // ---- 读"里面"的内容：cookies / screenshot ----
@@ -762,7 +762,7 @@ class BrowserTool extends AgentTool {
               '（= CSS ${(px.w / (g.dpr <= 0 ? 1 : g.dpr)).round()} × DPR ${g.dpr}）'
               '${g.sy > 0 || g.sx > 0 ? '；这一页已经滚动过，读坐标时注意把滚动量算进去' : ''}',
             );
-            sb.writeln('· 原始路径（给 python / termux 读写）：${saved.path}');
+            sb.writeln('· 原始路径（给 python / linux 读写）：${saved.path}');
             if (display != null) {
               sb.writeln('· **正文可直接显示**：$display');
               sb.writeln(
@@ -816,7 +816,7 @@ class BrowserTool extends AgentTool {
             final ({String path, String? shared, int bytes}) saved =
                 await Artifacts.saveText(ctx.workDir, 'cookies.txt', netscape);
             return '已导出 ${cookies.length} 条 cookie 到：${saved.path}\n'
-                '${saved.shared == null ? '' : '在 termux / 内置 Linux 里：${saved.shared}\n'}'
+                '${saved.shared == null ? '' : '在 Alpine 里：${saved.shared}\n'}'
                 '可以直接用：`curl -b ${saved.shared ?? saved.path} <网址>`。\n'
                 '名字：$names';
           }
@@ -1393,7 +1393,7 @@ class BrowserTool extends AgentTool {
   /// 结果预算：**超了就落盘**，只回摘要和路径。
   ///
   /// 为什么这是必须的：一次 9 万字符的 HTML 塞进上下文，后面几轮
-  /// 都没法聊了；而落盘之后模型只需要拿路径交给 python / termux，
+  /// 都没法聊了；而落盘之后模型只需要拿路径交给 python / linux，
   /// 正文留在磁盘上（这也是那份建议里"超长自动落盘"那一条）。
   static Future<String> _withinBudget(
     String workDir,
@@ -1405,7 +1405,7 @@ class BrowserTool extends AgentTool {
         await Artifacts.saveText(workDir, stampName(prefix), text);
     return '（内容 ${text.length} 字符，超过一轮能带的量，已存成文件）\n'
         '文件：${saved.path}\n'
-        '${saved.shared == null ? '' : '在 termux / 内置 Linux 里：${saved.shared}\n'}'
+        '${saved.shared == null ? '' : '在 Alpine 里：${saved.shared}\n'}'
         '\n开头一段：\n${text.substring(0, 1200)}';
   }
 

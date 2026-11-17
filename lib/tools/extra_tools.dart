@@ -705,7 +705,8 @@ class ImageTool extends AgentTool {
       '可以描述画面、读取截图中的文字、分析图表。'
       '如果模型识图失败或不支持图像，会降级为设备本地 OCR（只能提取文字），'
       '并且会把失败原因一并返回。'
-      'path 传本地文件绝对路径，通常是 screen_capture 截图后返回的路径。';
+      'path 传本地文件绝对路径（用户附件、`/shared` 里的文件、截图路径都可以）。'
+      '定位手机控件时请在 question 中要求返回原图像素坐标；OCR 不提供画面理解。';
 
   @override
   Map<String, dynamic> get parameters => <String, dynamic>{
@@ -1084,7 +1085,7 @@ class _VisionResult {
 
   /// 这次失败是不是"重试一次就可能成功"（网络抖动、超时）。
   ///
-  /// 单独立一个字段：长任务里（termux 在跑编译、生成 PPT）手机本来就吃紧，
+  /// 单独立一个字段：长任务里（`linux` 在跑编译、生成 PPT）手机本来就吃紧，
   /// 偶发的连接中断很常见 —— 那时候直接降级成 OCR，等于把"一次抖动"
   /// 变成了"这一轮只能看文字"。
   final bool transient;

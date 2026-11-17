@@ -13,9 +13,9 @@ import 'tool.dart';
 /// 目录遍历的公共部分：`filesearch` 用它，`reader` 列目录也用它。
 ///
 /// 为什么自己走 `Directory.list` 而不是拼一条 `find` 交给 shell：
-/// · 不想为一个"列文件"动用 Shizuku（那是系统级权限，用在这里太重）；
+/// · 不想为一个"列文件"启动 Alpine（启动 proot 用在这里太重）；
 /// · `find` 的输出得再解析一遍，而路径里带空格/换行的文件很常见；
-/// · 这条路径要能在**没有 shell 权限**时也работать（比如用户还没授权）。
+/// · 这条路径要能在**没有启动 Linux 环境**时也能用。
 class _Walk {
   const _Walk._();
 
@@ -84,7 +84,7 @@ class _Hit {
 /// **浏览器式列目录 / 找文件**：结构化、分页、不灌上下文。
 ///
 /// 存在的理由：模型以前找文件只能"猜路径 → `file_op list` → 猜错再猜"，
-/// 或者 `run_shell` 拼 `find`。前者烧轮次，后者要 Shizuku 权限、
+/// 或者 `linux` 里拼 `find`。前者烧轮次，后者要把整个环境启动起来、
 /// 而且 `find` 一跑就是几千行。
 ///
 /// 这个工具一次给一页（默认 50 条），带 `next_cursor`，模型想看下一页
@@ -728,7 +728,7 @@ class ReaderTool extends AgentTool {
 
 /// **直接执行 sh / py**，参数可以引用句柄。
 ///
-/// 和 `run_shell` / `termux` 的区别不在"能跑什么"，而在**怎么把大内容
+/// 和 `linux` 的区别不在"能跑什么"，而在**怎么把大内容
 /// 交给命令**：这里参数值支持 `path://a` / `stdin://a`，由系统解析成
 /// 文件路径或标准输入，**绝不把内容拼进命令行**。
 ///
@@ -747,7 +747,7 @@ class ShellerTool extends AgentTool {
   @override
   String get description =>
       '执行一段 sh 或 py，参数可以引用大内容而不把它拼进命令行。\n'
-      '和 `run_shell` 的区别：`run_shell` 是"跑一条系统命令"（pm/am/settings）；'
+      '和 `linux` 的区别：`linux` 是"跑一条命令"；'
       '这个是"跑一段脚本，并用句柄把文件喂给它"。\n'
       '参数：\n'
       '· lang：sh（默认）或 py\n'
@@ -866,8 +866,8 @@ class ShellerTool extends AgentTool {
     final String command;
     final List<String> usePositional;
     if (lang == 'py') {
-      // Python 走 sh 里的 `python3 -c`：内置 Alpine 里有 python3，
-      // 而内嵌的 Chaquopy 解释器在应用进程里，跑不了"给一段 stdin 的脚本"。
+      // Python 走 Alpine 里的 `python3 -c`：环境自带包管理，
+      // 需要第三方库时先 `apk add py3-xxx`。
       final String quotedScript = _quote(script);
       command = 'python3 -c $quotedScript';
       usePositional = positional;
@@ -913,7 +913,7 @@ class ShellerTool extends AgentTool {
     required int timeoutMs,
     String? stdin,
   }) async {
-    // 走 TerminalSession 而不是直接调 Linux/Termux：模型跑的命令要进
+    // 走 TerminalSession 而不是直接调 LinuxService：模型跑的命令要进
     // 终端页的流水，和用户手敲的命令排在一起 —— 用户得能在同一个地方
     // 看全"谁动了系统"。
     final ShellResult res = await TerminalSession.instance.run(

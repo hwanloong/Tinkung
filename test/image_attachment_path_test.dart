@@ -33,7 +33,7 @@ void main() {
     test('单张图片：名字、完整路径、以及该填哪个参数都在', () {
       final String note = imagePathNotes(<Attachment>[
         _img(
-          '/data/user/0/com.dsh.dsh_agent/files/attachments/1739.jpg',
+          '/data/user/0/com.agt.tk.hwl/files/attachments/1739.jpg',
           'IMG_2034.jpg',
         ),
       ]);
@@ -41,7 +41,7 @@ void main() {
       expect(note, contains('IMG_2034.jpg'), reason: '要能对上用户说的是哪张');
       expect(
         note,
-        contains('/data/user/0/com.dsh.dsh_agent/files/attachments/1739.jpg'),
+        contains('/data/user/0/com.agt.tk.hwl/files/attachments/1739.jpg'),
         reason:
             '**完整绝对路径** —— 这是整段话存在的唯一理由。'
             '只给文件名的话，工具在磁盘上找不到它',
@@ -137,7 +137,6 @@ void main() {
 
     final List<Map<String, dynamic>> msgs = await buildApiMessages(
       conv,
-      shizukuReady: false,
     );
 
     final Map<String, dynamic> user = msgs.last;
@@ -179,7 +178,6 @@ void main() {
 
     final List<Map<String, dynamic>> msgs = await buildApiMessages(
       conv,
-      shizukuReady: false,
     );
     final List<Map<String, dynamic>> users = msgs
         .where((Map<String, dynamic> m) => m['role'] == 'user')
@@ -254,7 +252,6 @@ void main() {
 
     final List<Map<String, dynamic>> msgs = await buildApiMessages(
       conv,
-      shizukuReady: false,
     );
     final List<dynamic> blocks = msgs.last['content'] as List<dynamic>;
     final int images = blocks

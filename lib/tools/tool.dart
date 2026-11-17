@@ -2,7 +2,6 @@ import '../core/models.dart';
 import '../core/productivity.dart';
 import '../core/store.dart';
 import '../plugins/plugin.dart';
-import '../shizuku/shizuku_service.dart';
 import 'risk.dart';
 
 /// 工具执行上下文
@@ -37,7 +36,6 @@ class SubAgentResult {
 class ToolContext {
   const ToolContext({
     required this.settings,
-    required this.shizuku,
     required this.conversation,
     required this.workDir,
     required this.searchApiKey,
@@ -61,8 +59,6 @@ class ToolContext {
 
   /// 全局设置。模型管理工具需要它来新增/修改/切换档案。
   final Settings settings;
-
-  final ShizukuService shizuku;
 
   /// **当前这场对话**（可写）。
   ///

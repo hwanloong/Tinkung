@@ -13,7 +13,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:dsh_agent/core/folder_tool.dart';
+import 'package:dsh_agent/core/skill.dart';
 import 'package:dsh_agent/core/mentions.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -124,11 +124,11 @@ enabled: true
   // ------------------------------------------------------------------
   group('导入外来文件', () {
     late Directory root;
-    late FolderToolStore store;
+    late SkillStore store;
 
     setUp(() async {
       root = await Directory.systemTemp.createTemp('dsh_import_');
-      store = FolderToolStore.instance;
+      store = SkillStore.instance;
       await store.configure(root);
       final Directory d = Directory('${root.path}/demo')..createSync();
       File('${d.path}/tool.md').writeAsStringSync('---\ntitle: 演示\n---\n步骤\n');
@@ -139,7 +139,7 @@ enabled: true
       if (root.existsSync()) root.deleteSync(recursive: true);
     });
 
-    FolderTool tool() => store.byId('demo')!;
+    Skill tool() => store.byId('demo')!;
 
     test('按原始文件名原样写进去，字节不变', () async {
       final Uint8List bytes = Uint8List.fromList(<int>[
@@ -223,7 +223,7 @@ enabled: true
     });
 
     test('超过上限被拒，且不留半个文件', () async {
-      final Uint8List big = Uint8List(FolderToolStore.maxImportBytes + 1);
+      final Uint8List big = Uint8List(SkillStore.maxImportBytes + 1);
       expect(await store.importBytes(tool(), 'big.bin', big), contains('太大'));
       expect(File('${root.path}/demo/big.bin').existsSync(), isFalse);
     });
@@ -242,11 +242,11 @@ enabled: true
   // ------------------------------------------------------------------
   group('工具图标 tool.icon', () {
     late Directory root;
-    late FolderToolStore store;
+    late SkillStore store;
 
     setUp(() async {
       root = await Directory.systemTemp.createTemp('dsh_icon_');
-      store = FolderToolStore.instance;
+      store = SkillStore.instance;
       await store.configure(root);
     });
 
@@ -254,7 +254,7 @@ enabled: true
       if (root.existsSync()) root.deleteSync(recursive: true);
     });
 
-    Future<FolderTool> makeTool(String id) async {
+    Future<Skill> makeTool(String id) async {
       final Directory d = Directory('${root.path}/$id')..createSync();
       File('${d.path}/tool.md').writeAsStringSync('---\ntitle: $id\n---\n');
       await store.load();
@@ -262,22 +262,22 @@ enabled: true
     }
 
     test('没有图标文件时 iconPath 为空（回退默认字形）', () async {
-      final FolderTool t = await makeTool('plain');
+      final Skill t = await makeTool('plain');
       expect(t.hasIcon, isFalse);
       expect(t.iconPath, isEmpty);
     });
 
     test('恰好叫 tool.icon 就算图标（格式由内容决定）', () async {
-      final FolderTool t = await makeTool('bare');
+      final Skill t = await makeTool('bare');
       File('${t.folderPath}/tool.icon').writeAsBytesSync(<int>[0x89, 0x50]);
       await store.load();
-      final FolderTool after = store.byId('bare')!;
+      final Skill after = store.byId('bare')!;
       expect(after.hasIcon, isTrue);
       expect(after.iconPath, endsWith('tool.icon'));
     });
 
     test('tool.icon.png 也认，大小写不敏感', () async {
-      final FolderTool t = await makeTool('ext');
+      final Skill t = await makeTool('ext');
       File('${t.folderPath}/TOOL.ICON.PNG').writeAsBytesSync(<int>[1, 2]);
       await store.load();
       expect(store.byId('ext')!.hasIcon, isTrue);
@@ -286,7 +286,7 @@ enabled: true
     test('tool.icon.webp / .jpg / .jpeg / .gif / .bmp 都认', () async {
       for (final String ext in <String>['webp', 'jpg', 'jpeg', 'gif', 'bmp']) {
         final String id = 'e_$ext';
-        final FolderTool t = await makeTool(id);
+        final Skill t = await makeTool(id);
         File('${t.folderPath}/tool.icon.$ext').writeAsBytesSync(<int>[1]);
         await store.load();
         expect(store.byId(id)!.hasIcon, isTrue, reason: '应该认 .$ext');
@@ -294,7 +294,7 @@ enabled: true
     });
 
     test('tool.icon.svg 不认 —— 没有矢量解码器，认了也显示不出来', () async {
-      final FolderTool t = await makeTool('vec');
+      final Skill t = await makeTool('vec');
       File('${t.folderPath}/tool.icon.svg').writeAsStringSync('<svg/>');
       await store.load();
       // 认了只会变成"图标放进去了但不显示"这种没法查的问题
@@ -302,14 +302,14 @@ enabled: true
     });
 
     test('其它名字的图片不算图标（比如 cover.png）', () async {
-      final FolderTool t = await makeTool('other');
+      final Skill t = await makeTool('other');
       File('${t.folderPath}/cover.png').writeAsBytesSync(<int>[1]);
       await store.load();
       expect(store.byId('other')!.hasIcon, isFalse);
     });
 
     test('子目录里的 tool.icon 不算 —— 图标只看第一层', () async {
-      final FolderTool t = await makeTool('deep');
+      final Skill t = await makeTool('deep');
       Directory('${t.folderPath}/assets').createSync();
       File('${t.folderPath}/assets/tool.icon').writeAsBytesSync(<int>[1]);
       await store.load();
@@ -317,14 +317,14 @@ enabled: true
     });
 
     test('图标文件本身出现在文件清单里（用户能看见、能替换它）', () async {
-      final FolderTool t = await makeTool('listed');
+      final Skill t = await makeTool('listed');
       File('${t.folderPath}/tool.icon').writeAsBytesSync(<int>[1]);
       await store.load();
       expect(store.filesOf(store.byId('listed')!), contains('tool.icon'));
     });
 
     test('用 importBytes 导入 tool.icon 后图标立刻生效', () async {
-      final FolderTool t = await makeTool('viaimport');
+      final Skill t = await makeTool('viaimport');
       expect(t.hasIcon, isFalse);
       expect(
         await store.importBytes(
@@ -347,11 +347,11 @@ enabled: true
   // ------------------------------------------------------------------
   group('文本性判定（决定能不能进编辑器）', () {
     late Directory root;
-    late FolderToolStore store;
+    late SkillStore store;
 
     setUp(() async {
       root = await Directory.systemTemp.createTemp('dsh_stat_');
-      store = FolderToolStore.instance;
+      store = SkillStore.instance;
       await store.configure(root);
       final Directory d = Directory('${root.path}/stat')..createSync();
       File('${d.path}/tool.md').writeAsStringSync('---\ntitle: stat\n---\n');
@@ -362,7 +362,7 @@ enabled: true
       if (root.existsSync()) root.deleteSync(recursive: true);
     });
 
-    FolderTool tool() => store.byId('stat')!;
+    Skill tool() => store.byId('stat')!;
 
     Future<ToolFileStat> statOf(String name, List<int> bytes) async {
       File('${tool().folderPath}/$name').writeAsBytesSync(bytes);
@@ -444,10 +444,10 @@ enabled: true
 
   group('humanSize', () {
     test('三个量级都对', () {
-      expect(FolderToolStore.humanSize(512), '512 B');
-      expect(FolderToolStore.humanSize(2048), '2.0 KB');
-      expect(FolderToolStore.humanSize(3 * 1024 * 1024), '3.0 MB');
-      expect(FolderToolStore.humanSize(-1), '大小未知');
+      expect(SkillStore.humanSize(512), '512 B');
+      expect(SkillStore.humanSize(2048), '2.0 KB');
+      expect(SkillStore.humanSize(3 * 1024 * 1024), '3.0 MB');
+      expect(SkillStore.humanSize(-1), '大小未知');
     });
   });
 }

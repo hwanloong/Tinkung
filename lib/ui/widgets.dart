@@ -62,9 +62,9 @@ class MessageView extends StatelessWidget {
     this.onDelete,
     this.animateIn = false,
     this.onBubbleAnimated,
-    this.collapseToolSteps = true,
-    this.showToolSteps = true,
-    this.minimalProgress = false,
+    this.isLastAssistant = false,
+    this.processTools = const <ToolInvocation>[],
+    this.suppressThinking = false,
   });
 
   final ChatMessage message;
@@ -92,6 +92,27 @@ class MessageView extends StatelessWidget {
   /// 入场动画播完，通知页面把 `animateIn` 收回 false。
   final VoidCallback? onBubbleAnimated;
 
+  /// 这条是不是**最后一条 AI 回复**。
+  ///
+  /// 复制按钮只挂在最后一条上：每轮回复底下都有一排按钮时，
+  /// 往上翻历史会被这些重复的图标打断；而用户真正想复制的
+  /// 通常就是刚看到的那条。
+  final bool isLastAssistant;
+
+  /// 同一轮任务里，**过程消息**上的工具调用。
+  ///
+  /// 过程轮现在被聊天页收进一行 `ProcessGroup`，不再逐条走这里渲染，
+  /// 但它们改过的文件仍要出现在答复下方那张「文件」卡片里 ——
+  /// 否则用户点开看到「改完了」却找不到文件在哪。
+  /// 只有最终答复这条消息会收到这份列表。
+  final List<ToolInvocation> processTools;
+
+  /// 这一轮已经有过程条了：不要再在正文上方画一张思考卡。
+  ///
+  /// 最后一轮的思维链由 `ProcessGroup` 一并收进「详情」里展示。
+  /// 纯问答（没有任何工具调用）时没有过程条，思考卡照旧显示。
+  final bool suppressThinking;
+
   /// 长按选中 → 某个底色的「标记」。
   final void Function(ChatMessage on, String selected, MarkColor color)? onMark;
 
@@ -100,28 +121,6 @@ class MessageView extends StatelessWidget {
 
   /// 点一下消息顶部那条引用，跳到被引用的原文。
   final void Function(MessageQuote quote)? onTapQuote;
-
-  /// 工具步骤是否折叠成一行。由「性能 → 工具步骤过程」控制。
-  final bool collapseToolSteps;
-
-  /// 这条消息下面的**工具过程**要不要画。
-  ///
-  /// 关掉用在"整场对话的工具调用已经汇总成一行了"的时候（见
-  /// [ToolFoldAllRow]）：那一行代表的就是这些东西，这里再画一遍就是重复。
-  ///
-  /// 注意它和 [collapseToolSteps] 是两件事：后者是"怎么画"（收成一行还是
-  /// 逐步平铺），这个是"画不画"。
-  final bool showToolSteps;
-
-  /// **极简过程**（「性能 → 极简过程」）。
-  ///
-  /// 打开后，思考和工具调用**合并成一行状态**：只写「正在思考…」或
-  /// 「正在调用工具…」，没有可点的东西、也没有能展开的细节；
-  /// 回答结束之后连这一行都不留。
-  ///
-  /// 和 [collapseToolSteps] 的区别就在这里：折叠仍然保留"点开看"的入口，
-  /// 极简是**把入口本身拿掉** —— 想要"只要结果"的人要的是这个。
-  final bool minimalProgress;
 
   @override
   Widget build(BuildContext context) {
@@ -257,6 +256,27 @@ class MessageView extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
+              // 设备来源标签：只在手表等设备发来的消息上显示。
+              // speaker 是设备的显示名（如"佳明设备"），区别于用户手打的消息。
+              if ((message.speaker ?? '').isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Icon(Icons.watch_rounded, size: 11, color: s.muted),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${message.speaker} 发送',
+                        style: AppFonts.body(
+                          size: 11,
+                          color: s.muted,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               if (message.quote != null) _quoteCard(context, s, true),
               if (message.attachments.isNotEmpty &&
                   message.content.trim().isNotEmpty)
@@ -266,29 +286,19 @@ class MessageView extends StatelessWidget {
                   _VarBankBubble(message: message, s: s, onDelete: onDelete)
                 else
                   Container(
+                    // **四边等圆角，没有尖角、没有描边。**
+                    //
+                    // 试过带尾巴的对话气泡（右下角探出一个尖），实际看起来
+                    // 像"这个角没画圆" —— 边缘那一点凸起在深色主题下更明显。
+                    // 现在回到纯圆角：气泡只靠底色和正文区分，边界干净。
                     decoration: BoxDecoration(
-                      // **淡色气泡。**
-                      //
-                      // 这里原来是 `AppColors.accent`。当年 accent 是灰色时
-                      // 它看着是个温和的深灰块；改成 iOS 之后 accent 变成
-                      // 近黑 `#1C1C1E` —— 同样一行代码，在屏幕上成了一整块
-                      // 纯黑，又重又压，而且长消息就是一大片黑底。
-                      //
-                      // iOS 的对话气泡本来就是**浅填充**（iMessage 的灰泡），
-                      // 所以改用容器色：浅色模式下是 #EFEFF4，深色模式下是
-                      // #2C2C2E，两种亮度下都只是"比底色深一档"，不抢文字。
                       color: s.bubbleBg,
-                      // **四边等圆角，没有描边。**
-                      //
-                      // 参考图里气泡就是一块纯色的圆角块 —— 没有边框。
-                      // 有边框时它读起来像"一张卡片"，而气泡要的是
-                      // "我打的这段话"，边界靠底色差就够（页面 `#1A1A1A`
-                      // 对气泡 `#2E2E2E`，差 20 级，一眼分得开）。
                       borderRadius: BorderRadius.circular(AppRadius.card),
                     ),
-                    // 左边 14、右边 14 - 3：右内距里那 3 像素是 SelectableText
-                    // 留给光标的死区（见 [_caretReserve]）。扣掉之后，
-                    // 两侧墨迹到气泡边的距离都是 15（差 0.8，是字形本身的侧边距）。
+                    // 左边 14、右边 14 - 3：右内距里那 3 像素是
+                    // SelectableText 留给光标的死区（见 [_caretReserve]）。
+                    // 扣掉之后，两侧墨迹到气泡边的距离都是 15
+                    // （差 0.8，是字形本身的侧边距）。
                     padding: const EdgeInsets.fromLTRB(
                       _bubblePadH,
                       _bubblePadV,
@@ -423,9 +433,7 @@ class MessageView extends StatelessWidget {
         decoration: BoxDecoration(
           color: color.withValues(alpha: s.isDark ? 0.10 : 0.07),
           borderRadius: BorderRadius.circular(AppRadius.code),
-          border: Border(
-            left: BorderSide(color: color, width: 3),
-          ),
+          border: Border(left: BorderSide(color: color, width: 3)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -454,11 +462,7 @@ class MessageView extends StatelessWidget {
                     ),
                   Text(
                     text,
-                    style: AppFonts.body(
-                      size: 13,
-                      color: s.text,
-                      height: 1.55,
-                    ),
+                    style: AppFonts.body(size: 13, color: s.text, height: 1.55),
                   ),
                 ],
               ),
@@ -625,8 +629,14 @@ class MessageView extends StatelessWidget {
 
   Widget _assistantBlock(BuildContext context) {
     final List<Widget> children = <Widget>[];
+    // 过程轮的工具调用已经收进过程条了，但它们改过的文件仍要跟着
+    // 最终答复出现 —— 否则用户只看到「改完了」，找不到文件在哪。
+    final List<ToolInvocation> allTools = <ToolInvocation>[
+      ...processTools,
+      ...message.tools,
+    ];
     final List<FileChange> changes = <FileChange>[
-      for (final ToolInvocation t in message.tools) ...t.changes,
+      for (final ToolInvocation t in allTools) ...t.changes,
     ];
 
     // ---- 思考卡片 ----
@@ -638,7 +648,7 @@ class MessageView extends StatelessWidget {
     // ⚠️ 这里曾经出过一个 bug：加了这个卡片，却**没有删掉下面原来那段**
     // "思考中…" 的兜底，于是思考的时候同一条消息上出现两行"思考中…"。
     // 所以下面那段已经被删除，思考状态的显示**只有这一个来源**。
-    if (!minimalProgress &&
+    if (!suppressThinking &&
         (message.reasoning.trim().isNotEmpty ||
             (message.pending && message.content.trim().isEmpty))) {
       children.add(_ThinkingCard(message: message));
@@ -735,7 +745,7 @@ class MessageView extends StatelessWidget {
       //    代码围栏），而选中复制拿到的是渲染后的纯文本，结构全丢了。
       //
       // 流式输出中不显示：复制一段还在增长的内容没有意义。
-      if (!message.pending) {
+      if (!message.pending && isLastAssistant) {
         children.add(_CopyButton(text: message.content));
       }
 
@@ -756,9 +766,9 @@ class MessageView extends StatelessWidget {
       // 一眼能看出是网页还是 API，也能直接点开。
       // 执行中就先把"碰到哪些文件"放出来：用户不用等整轮结束才知道
       // AI 在改什么；路径会随着工具调用逐步补全。
-      if (!minimalProgress && message.pending && message.tools.isNotEmpty) {
+      if (message.pending && allTools.isNotEmpty) {
         final String liveText = <String>[
-          for (final ToolInvocation t in message.tools)
+          for (final ToolInvocation t in allTools)
             '${t.argumentsJson}\n${t.output ?? ''}',
         ].join('\n');
         children.add(
@@ -767,65 +777,31 @@ class MessageView extends StatelessWidget {
       }
 
       if (!message.pending) {
-        // 正文里的网址**不再补卡片**：用户要求聊天页底部不要网址。
-        // 正文里如果真写了链接，markdown 渲染会把它显示成可点的文字 ——
-        // 那属于内容本身，不是界面追加的一块。
-        // （LinkCards 类仍保留给别处/将来复用，这里只是不再挂载。）
-        // 正文 + 工具调用里提到的**本地文件**收进一张可展开的卡片。
-        //
-        // 只看正文不够：改文件的是 Python / termux / change_think，
-        // 它们产出的路径常常只出现在工具参数或输出里，模型最后一句
-        // 未必复述。三种来源合起来，用户才不会"改完找不到文件"。
         final String fileText = <String>[
           message.content,
-          for (final ToolInvocation t in message.tools)
+          for (final ToolInvocation t in allTools)
             '${t.argumentsJson}\n${t.output ?? ''}',
         ].join('\n');
-        if (!minimalProgress) {
-          children.add(GeneratedFiles(text: fileText, changes: changes));
-        }
+        children.add(GeneratedFiles(text: fileText, changes: changes));
       }
     }
 
-    // ---- 工具步骤 ----
+    // ---- 工具过程：整轮收成一行 ----
     //
-    // 整组交给 [ToolStepGroup]：它按「性能 → 工具步骤过程」决定
-    // 是收成一行还是平铺。这里不再自己遍历。
+    // 原来这里是 `collapse: false`，十几条工具行直接铺在正文前面，
+    // 结论被推到几屏之外。现在**不论一步还是十几步**都收进
+    // [ToolStepGroup]：默认只留一行「执行了 N 步 · 耗时」，点「详情」
+    // 才展开成带树状连接线的步骤列表 —— 和主流 agent 的过程面板一样。
     //
-    // ## 执行中只给"当前那一步"
-    //
-    // 用户要的是"只显示当前进程"。执行中如果把已经跑完的七八步也列出来，
-    // 屏幕上就是一份越来越长的历史 —— 而此刻他关心的是"现在在干什么"。
-    //
-    // 所以执行中只把**还在跑**的那一步交给 ToolStepGroup（单条它就不折叠，
-    // 直接显示成一行）；等回复结束再把完整列表给回去，历史一条不少。
-    if (minimalProgress) {
-      // ---- 极简：过程不画在消息里 ----
-      //
-      // 状态行 + 历史工具调用 + 文件改动统一挪到输入框上方的
-      // 「过程」折叠条（ChatPage._processStrip）：
-      //  · 外面只有一句「正在研究如何… / 正在获取…」；
-      //  · 点开才看得到全部历史工具调用和文件修改；
-      //  · 回答结束后折叠条仍然留着，随时能回看。
-      // 所以这里什么都不加 —— 既不加状态行，也不加文件卡片。
-    } else if (message.tools.isNotEmpty && showToolSteps) {
-      // `chat_alarm` **不进工具步骤列表**：它的产物就是下面那条告示条，
-      // 再在步骤里列一行"风险告示 ✓"等于同一个东西说两遍，而且那行
-      // 折叠在"查看过程"里面 —— 用户看不到，告示就白挂了。
+    // 运行时也把**全部已发生的步骤**传进去（不再只传 running 的那条）：
+    // 组头会写「正在执行第 3 步 · linux xxx」，既有进度又不占地方；
+    // 用户想追细节，随时点开就能看到已经跑完的前两步。
+    if (message.tools.isNotEmpty) {
       final List<ToolInvocation> steps = message.tools
           .where((ToolInvocation t) => t.name != ChatAlarmTool.toolName)
           .toList();
-      final List<ToolInvocation> shown = _isExecuting(message)
-          ? steps
-                .where(
-                  (ToolInvocation t) => t.status == InvocationStatus.running,
-                )
-                .toList()
-          : steps;
-      // 执行中但此刻没有工具在跑（在等模型出下一句）→ 不显示工具行，
-      // 屏幕上只留思考卡片，这才是"当前进程"该有的样子。
-      if (shown.isNotEmpty) {
-        children.add(ToolStepGroup(tools: shown, collapse: collapseToolSteps));
+      if (steps.isNotEmpty) {
+        children.add(ToolStepGroup(tools: steps));
       }
     }
 
@@ -934,7 +910,12 @@ class AttachmentChip extends StatelessWidget {
     final int dot = name.lastIndexOf('.');
     final String ext = dot < 0 ? '' : name.substring(dot + 1).toLowerCase();
     return switch (ext) {
-      'png' || 'jpg' || 'jpeg' || 'webp' || 'gif' || 'bmp' ||
+      'png' ||
+      'jpg' ||
+      'jpeg' ||
+      'webp' ||
+      'gif' ||
+      'bmp' ||
       'heic' => Icons.image_outlined,
       'pdf' => Icons.picture_as_pdf_outlined,
       'doc' || 'docx' || 'rtf' => Icons.description_outlined,
@@ -943,8 +924,16 @@ class AttachmentChip extends StatelessWidget {
       'zip' || 'rar' || '7z' || 'tar' || 'gz' => Icons.folder_zip_outlined,
       'mp3' || 'wav' || 'm4a' || 'flac' => Icons.audiotrack_rounded,
       'mp4' || 'mov' || 'mkv' || 'webm' => Icons.movie_outlined,
-      'dart' || 'py' || 'js' || 'ts' || 'kt' || 'java' || 'json' ||
-      'yaml' || 'yml' || 'sh' => Icons.code_rounded,
+      'dart' ||
+      'py' ||
+      'js' ||
+      'ts' ||
+      'kt' ||
+      'java' ||
+      'json' ||
+      'yaml' ||
+      'yml' ||
+      'sh' => Icons.code_rounded,
       _ => Icons.insert_drive_file_outlined,
     };
   }
@@ -1223,7 +1212,9 @@ class _ThinkingCardState extends State<_ThinkingCard> {
       bits.isEmpty ? '思考' : bits.join(' · '),
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: AppFonts.body(size: 12.2, color: s.muted, height: 1.3),
+      // 行高 1.35：和工具行同一套行盒。图标补偿按同一张表查，
+      // 思考行和下面的工具行才会落在同一条水平线上。
+      style: AppFonts.body(size: 12.2, color: s.muted, height: 1.35),
     );
 
     return Padding(
@@ -1241,8 +1232,11 @@ class _ThinkingCardState extends State<_ThinkingCard> {
       // 上边距**归零**：上一行（工具行或工具组）自己已经带了 `bottom: 5`，
       // 这里再加 8 就变成 13 —— 比"工具行之间"的 5 宽了一倍多，
       // 一列扫下来那两行之间明显空一大块（用户的原话是"中间太宽了"）。
-      // 现在每一对相邻的行之间都是 5，间距只有一个来源。
-      padding: const EdgeInsets.only(bottom: 5),
+      // ---- 和过程条同一套间距 ----
+      //
+      // 「普通思考」和「调用工具的过程」是同一件事的两面，样子和
+      // 间距都必须一样：离上面的用户气泡远，离下面的正文近。
+      padding: const EdgeInsets.only(top: 20, bottom: 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -1251,13 +1245,11 @@ class _ThinkingCardState extends State<_ThinkingCard> {
             onTap: m.reasoning.trim().isEmpty
                 ? null
                 : () => setState(() => _open = !_open),
-            // 用和工具行**同一套** ToolRow：同一个行高、同一套居中规则。
-            // 两行在聊天里上下相邻，各写一套布局的话图标永远对不齐
-            // （用户看到的就是"思考那行和 python 那行歪了"）。
+            // 和工具行**同一套** ToolRow：同一套布局、同一套基线补偿。
+            // 但**不要背景板**：思考/过程都只是正文之前的铺垫，
+            // 一块灰底会让它们比正文更像"内容"。
             child: ToolRow(
               iconGap: 7,
-              // 图标列的对齐基准和静止态同一个字形、同一个尺寸，
-              // 所以补偿也查同一张表（传 0 会整整差 0.3）。
               iconNudge: toolIconNudge(Icons.psychology_outlined),
               icon: thinking
                   ? WorkingPulse(
@@ -1267,12 +1259,14 @@ class _ThinkingCardState extends State<_ThinkingCard> {
                     )
                   : Icon(Icons.psychology_outlined, size: 15, color: s.muted),
               trailing: m.reasoning.trim().isNotEmpty
-                  ? Icon(
-                      _open
-                          ? Icons.keyboard_arrow_up_rounded
-                          : Icons.keyboard_arrow_down_rounded,
-                      size: 18,
-                      color: s.muted,
+                  ? AnimatedRotation(
+                      turns: _open ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 160),
+                      child: Icon(
+                        Icons.expand_more_rounded,
+                        size: 17,
+                        color: s.muted,
+                      ),
                     )
                   : null,
               child: thinking
@@ -1286,7 +1280,8 @@ class _ThinkingCardState extends State<_ThinkingCard> {
           ),
           if (_open && m.reasoning.trim().isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(top: 8),
+              // 缩进和过程条展开区一致（left 22），一眼看出属于上面那行。
+              padding: const EdgeInsets.only(left: 22, top: 8),
               child: Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),

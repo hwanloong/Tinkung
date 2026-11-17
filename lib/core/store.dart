@@ -487,38 +487,8 @@ class Settings extends ChangeNotifier {
 
   /// **工具步骤过程**是否收进一个可折叠的块里。
   ///
-  /// ## 两种模式的取舍
-  ///
-  /// · `true`（默认，= 折叠）：一轮里调了十几个工具时，聊天流会被
-  ///   一大片工具行淹没，正文被推到看不见。折叠成「执行了 12 步 ▸」
-  ///   之后正文始终在视线里，想看细节点一下。
-  /// · `false`（= 平铺）：每一步都直接占一行。**调试时有用** ——
-  ///   能一眼扫完整个调用链，不用反复展开；但正常聊天时太吵。
-  ///
-  /// 放在「性能」里而不是「界面」里：它影响的是**信息密度**，
-  /// 和字号、圆角那类纯外观选项不是一回事。
-  bool collapseToolSteps = true;
-
   /// **上下文压缩的时机**。三档：
-  ///
-  ///  · `every`（默认）—— **每一轮都压**：较早轮次的工具输出在发请求前
-  ///    压成摘要。这是原来的行为；
-  ///  · `ratio` —— **用量到 80% 才压**：前面的轮次全部原样发送，
-  ///    等最近一次请求的输入超过上下文上限的 80%，从下一轮开始压缩。
-  ///    上下文宽裕时模型能看到完整原文，撞上限之前照样会自动收紧；
-  ///  · `off` —— 不压，原样发送（需要模型精确回看某段工具原文时用）。
-  ///
-  /// ## 为什么要有 `ratio` 这一档
-  ///
-  /// `every` 的问题是**代价恒定**：哪怕这一轮只有三千 token，早先那几步
-  /// 工具输出也会被削掉 —— 模型在核对一个上午前的输出时，看到的已经是
-  /// 摘要。而多数会话离上限很远，那笔削价纯属白付。
-  ///
-  /// `ratio` 把那笔代价挪到真正需要它的时候：宽裕时给全文，吃紧时再压。
-  ///
-  /// 压缩本身是**有损**的，所以 `off` 必须留着 —— 用户核对输出、
-  /// 复现报错时需要完整性，那比省 token 重要。
-  String compressMode = 'every';
+  String compressMode = 'ratio';
 
   /// 是否启用压缩（`off` 以外都算启用）。给老调用点用的派生值。
   bool get compressContext => compressMode != 'off';
@@ -535,18 +505,6 @@ class Settings extends ChangeNotifier {
   /// 数值越大越保守（越不压）。3 轮够覆盖"刚才那一步在干什么"，
   /// 再往前的内容模型已经消化成结论了。
   int compressKeepTurns = 3;
-
-  /// **极简过程模式**：思考和工具调用合并成一行状态，
-  /// 只写「正在思考…」或「正在调用工具…」，**点不开、看不到细节**。
-  ///
-  /// 和 [collapseToolSteps] 是两档不同的东西：
-  ///  · 折叠：一行摘要，**点得开**，细节还在（默认档）；
-  ///  · 极简：一行状态，**没有可展开的内容**，结束后连这一行都不留。
-  ///
-  /// 给谁用：把手机当"问答机"用的人 —— 他只要结果，过程对他来说
-  /// 是一屏在动的字。这不是"省空间"，是**把过程从界面上整个拿掉**，
-  /// 所以它必须有独立开关，而不是折叠的第三档。
-  bool minimalProgress = false;
 
   /// **开发者选项的总开关**。
   ///
@@ -631,6 +589,30 @@ class Settings extends ChangeNotifier {
   /// 主题的基础倍率是 1.0（见 AppFonts.baseScale），最终倍率 = 1.0 × 这个值。
   double fontScale = 1.0;
 
+  /// **英文字体**（同时决定界面文字）。取值见 `theme/font_options.dart`。
+  /// `custom` = 用户导入的字体文件，见 [fontLatinPath]。
+  String fontLatin = 'inter';
+
+  /// **中文字体**：只参与兜底链（西文字体没有的字形才落在这里）。
+  String fontCjk = 'system';
+
+  /// **代码字体**。
+  String fontCode = 'monospace';
+
+  /// 三个槽位的自定义字体文件路径（`.ttf` / `.otf`）。空 = 不用自定义。
+  ///
+  /// ## 为什么存路径而不是把字体打进 APK
+  ///
+  /// 见 `core/custom_font.dart`：字体文件进仓库就是**再分发**（苹方这类是
+  /// 苹果的东西），而且 Flutter 不支持"可选字体资源"——声明了找不到文件
+  /// 就是构建错误，等于让每个克隆仓库的人自己准备一份。
+  ///
+  /// 所以：运行时从文件加载，路径存在这里。代价是**换设备要重新选一次**；
+  /// 同一台设备上升级应用不会丢。
+  String fontLatinPath = '';
+  String fontCjkPath = '';
+  String fontCodePath = '';
+
   /// **使用模式**：决定 agent 的工作方式（见 `buildSystemPrompt` 的模式段）。
   ///
   /// · `student`  —— 学生：偏好图、步骤、大白话，先解释再动手；
@@ -647,18 +629,6 @@ class Settings extends ChangeNotifier {
   /// 单独给横屏一个倍率，用户不必为了横屏把竖屏也一起缩小。
   double landscapeFontScale = 1.0;
 
-  /// **用户自选的字体文件路径**（`.ttf` / `.otf` / `.ttc`）。留空 = 用内置的。
-  ///
-  /// ## 为什么是路径而不是把字体打进 APK
-  ///
-  /// 见 `core/custom_font.dart`：字体文件进仓库就是**再分发**（苹方这类是
-  /// 苹果的东西），而且 Flutter 不支持"可选字体资源"——声明了找不到文件
-  /// 就是构建错误，等于让每个克隆仓库的人自己准备一份。
-  ///
-  /// 所以：运行时从文件加载，路径存在这里。代价是**换设备要重新选一次**；
-  /// 同一台设备上升级应用不会丢。
-  String customFontPath = '';
-
   /// **抓网页时用桌面版 UA**（默认移动版）。
   ///
   /// 一部分站点给手机端发的是精简页（正文被砍，"展开全文"才出），
@@ -666,7 +636,7 @@ class Settings extends ChangeNotifier {
   /// 但"我要哪个版本"是用户的意图，不该替他猜 —— 所以是一个开关。
   bool desktopUa = false;
 
-  /// **主题色**（M3 种子色）的 ARGB 值。0 = 用默认灰。
+  /// **主题色**（M3 种子色）的 ARGB 值。0 = 用默认陶土橙。
   ///
   /// 存 int 而不是 Color：SharedPreferences 存不了对象，
   /// 而 int 是最省事的无损表示（Color.toARGB32()）。
@@ -674,8 +644,15 @@ class Settings extends ChangeNotifier {
   /// **必须走种子色**，不能只改强调色 —— M3 的整套表面色
   /// （页面底、卡片、代码块）都是由种子推出来的，
   /// 只把 primary 换个颜色会得到"底色还是灰的、只有按钮变色"的
-  /// 半套主题，比不换更难看。见 `AppColors.seed` 的注释。
+  /// 半套主题，比不换更难看。
   int themeSeed = 0;
+
+  /// **跟随系统壁纸取色**（Android 12+ 的 Material You 动态色）。
+  ///
+  /// 打开后忽略 [themeSeed]，用系统按壁纸推出的 ColorScheme。
+  /// 桌面和 Android 12 以下会自动回落到 [themeSeed] —— 系统拿不到
+  /// 动态配色时 `DynamicColorBuilder` 给的是 null，不用自己做平台判断。
+  bool followSystemColor = false;
 
   /// **模型列表里每个条目显示多少信息**。
   ///
@@ -760,8 +737,7 @@ class Settings extends ChangeNotifier {
     inputSuggestProfileId = _prefs.getString('inputSuggestProfileId') ?? '';
     inputSuggestEffort = _prefs.getInt('inputSuggestEffort') ?? 1;
     improvePrompt = _prefs.getBool('improvePrompt') ?? false;
-    hiddenProfileIds =
-        _prefs.getStringList('hiddenProfileIds') ?? <String>[];
+    hiddenProfileIds = _prefs.getStringList('hiddenProfileIds') ?? <String>[];
     promptImproveLevel = _prefs.getString('promptImproveLevel') ?? 'medium';
     promptImproveModel = _prefs.getString('promptImproveModel') ?? '';
     promptImproveInstruction =
@@ -769,14 +745,12 @@ class Settings extends ChangeNotifier {
     autoApproveAll = _prefs.getBool('autoApproveAll') ?? false;
     autoApproveSafe = _prefs.getBool('autoApproveSafe') ?? true;
     useOverlayConfirm = _prefs.getBool('useOverlayConfirm') ?? true;
-    // 六套字体预设（fontScheme）不再读取：只剩"字号"和"用户自选一个字体
-    // 文件"两件事。老的 prefs key 留着不删，免得回滚旧版本时设置丢失。
-    customFontPath = _prefs.getString('customFontPath') ?? '';
+    // 旧版本的三套固定字体（`fontScheme`）不再读取；字体现在由
+    // fontLatin / fontCjk / fontCode 三组设置决定（见 font_options.dart）。
     desktopUa = _prefs.getBool('desktopUa') ?? false;
     memoryEnabled = _prefs.getBool('memoryEnabled') ?? true;
     crossChatMemory = _prefs.getBool('crossChatMemory') ?? true;
     learningEnabled = _prefs.getBool('learningEnabled') ?? true;
-    collapseToolSteps = _prefs.getBool('collapseToolSteps') ?? true;
     // 老版本存的是**布尔**（开/关）。迁一次：
     // `true` → `every`（原来的"每轮都压"），`false` → `off`。
     // 新 key 存在就用新值。
@@ -784,7 +758,6 @@ class Settings extends ChangeNotifier {
         _prefs.getString('compressMode') ??
         ((_prefs.getBool('compressContext') ?? true) ? 'every' : 'off');
     compressKeepTurns = _prefs.getInt('compressKeepTurns') ?? 3;
-    minimalProgress = _prefs.getBool('minimalProgress') ?? false;
     developerMode = _prefs.getBool('developerMode') ?? false;
     showPerTurnTimings = _prefs.getBool('showPerTurnTimings') ?? false;
     themePackNativeHeader = _prefs.getBool('themePackNativeHeader') ?? true;
@@ -795,7 +768,14 @@ class Settings extends ChangeNotifier {
     teenQuery = _prefs.getInt('teenQuery') ?? 1;
     fontScale = _prefs.getDouble('fontScale') ?? 1.0;
     landscapeFontScale = _prefs.getDouble('landscapeFontScale') ?? 1.0;
+    fontLatin = _prefs.getString('fontLatin') ?? 'inter';
+    fontCjk = _prefs.getString('fontCjk') ?? 'system';
+    fontCode = _prefs.getString('fontCode') ?? 'monospace';
+    fontLatinPath = _prefs.getString('fontLatinPath') ?? '';
+    fontCjkPath = _prefs.getString('fontCjkPath') ?? '';
+    fontCodePath = _prefs.getString('fontCodePath') ?? '';
     themeSeed = _prefs.getInt('themeSeed') ?? 0;
+    followSystemColor = _prefs.getBool('followSystemColor') ?? false;
     // 空串保留原样：首次启动看到"没选过"，才会弹模式选择页。
     // 不能默认成 daily —— 那样选择页永远不会出现。
     assistantMode = _prefs.getString('assistantMode') ?? '';
@@ -941,12 +921,10 @@ class Settings extends ChangeNotifier {
     await _prefs.setBool('memoryEnabled', memoryEnabled);
     await _prefs.setBool('crossChatMemory', crossChatMemory);
     await _prefs.setBool('learningEnabled', learningEnabled);
-    await _prefs.setBool('collapseToolSteps', collapseToolSteps);
     await _prefs.setString('compressMode', compressMode);
     // 老 key 同步成布尔：回滚旧版本时语义仍然对（every/ratio 都算"开"）。
     await _prefs.setBool('compressContext', compressMode != 'off');
     await _prefs.setInt('compressKeepTurns', compressKeepTurns);
-    await _prefs.setBool('minimalProgress', minimalProgress);
     await _prefs.setBool('developerMode', developerMode);
     await _prefs.setBool('showPerTurnTimings', showPerTurnTimings);
     await _prefs.setBool('themePackNativeHeader', themePackNativeHeader);
@@ -957,9 +935,15 @@ class Settings extends ChangeNotifier {
     await _prefs.setInt('teenQuery', teenQuery);
     await _prefs.setDouble('fontScale', fontScale);
     await _prefs.setDouble('landscapeFontScale', landscapeFontScale);
-    await _prefs.setString('customFontPath', customFontPath);
+    await _prefs.setString('fontLatin', fontLatin);
+    await _prefs.setString('fontCjk', fontCjk);
+    await _prefs.setString('fontCode', fontCode);
+    await _prefs.setString('fontLatinPath', fontLatinPath);
+    await _prefs.setString('fontCjkPath', fontCjkPath);
+    await _prefs.setString('fontCodePath', fontCodePath);
     await _prefs.setBool('desktopUa', desktopUa);
     await _prefs.setInt('themeSeed', themeSeed);
+    await _prefs.setBool('followSystemColor', followSystemColor);
     await _prefs.setString('assistantMode', assistantMode);
     await _prefs.setString('modelChipInfo', modelChipInfo);
   }
@@ -1133,6 +1117,7 @@ class ConversationStore extends ChangeNotifier {
   Future<void> load() async {
     _loaded = false;
     conversations.clear();
+    bool retitledDevices = false;
     try {
       // 注意这里**不能提前 return**：首帧已经不等加载了，返回前必须
       // 把"读完了"这件事通知出去，否则界面会一直停在空状态上。
@@ -1143,6 +1128,14 @@ class ConversationStore extends ChangeNotifier {
         // 而且要等用户手动清一遍才能干净 —— 那不是他该操心的事。
         // 过滤放在解析那一侧（[_readConversations]）做，省一次全表遍历。
         conversations.addAll(parsed);
+        // 手表的出厂名（Instinct 2 / instinct2）不再当会话标题。
+        // 迁移放在读入时做：用户升级后不用再手动改一遍。
+        for (final Conversation c in conversations) {
+          if (c.deviceId != null && c.title.toLowerCase().contains('instinct')) {
+            c.title = '佳明设备';
+            retitledDevices = true;
+          }
+        }
         // 取**最近更新**的那条，而不是 `sorted.first`：置顶之后列表第一条是
         // "被钉住的那条"，不一定是他上次聊的那条。用 sorted 会变成
         // "打开应用落在置顶会话上" —— 那不是置顶该有的副作用。
@@ -1164,6 +1157,8 @@ class ConversationStore extends ChangeNotifier {
       // 放在 finally：成功、没文件、解析失败三条路都要把界面叫醒一次。
       notifyListeners();
     }
+    // 改名要在 `_loaded = true` 之后落盘，否则 save() 会按"还没读完"丢弃。
+    if (retitledDevices) unawaitedSave();
   }
 
   Future<void> save() async {
@@ -1223,6 +1218,70 @@ class ConversationStore extends ChangeNotifier {
     notifyListeners();
     unawaitedSave();
     return c;
+  }
+
+  Conversation conversationForDevice(
+    String deviceId,
+    String title, {
+    bool select = true,
+  }) {
+    for (final Conversation conversation in conversations) {
+      if (conversation.deviceId == deviceId) {
+        if (select && currentId != conversation.id) {
+          currentId = conversation.id;
+          notifyListeners();
+        }
+        return conversation;
+      }
+    }
+    final Conversation conversation = Conversation(
+      id: newId(),
+      title: title,
+      deviceId: deviceId,
+    );
+    conversations.add(conversation);
+    if (select) currentId = conversation.id;
+    notifyListeners();
+    unawaitedSave();
+    return conversation;
+  }
+
+  /// 找或建 External Artifact 的专属会话。
+  Conversation conversationForArtifact(
+    String artifactId,
+    String title, {
+    bool select = true,
+  }) {
+    for (final Conversation c in conversations) {
+      if (c.artifactId == artifactId) {
+        if (select && currentId != c.id) {
+          currentId = c.id;
+          notifyListeners();
+        }
+        return c;
+      }
+    }
+    final Conversation c = Conversation(
+      id: newId(),
+      title: title,
+      artifactId: artifactId,
+    );
+    conversations.add(c);
+    if (select) currentId = c.id;
+    notifyListeners();
+    unawaitedSave();
+    return c;
+  }
+
+  void clearConversation(String id) {
+    final Conversation? conversation = conversations
+        .where((Conversation item) => item.id == id)
+        .firstOrNull;
+    if (conversation == null) return;
+    conversation.messages.clear();
+    conversation.updatedAt = DateTime.now();
+    notifyListeners();
+    unawaitedSave();
   }
 
   void select(String id) {

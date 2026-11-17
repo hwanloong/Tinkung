@@ -9,6 +9,32 @@ import 'inline_image.dart';
 import 'latex_compat.dart';
 import 'shimmer.dart';
 
+// ---------------------------------------------------------------- 阅读节奏
+//
+// 这三项只管**要读的长文**（AI 回复正文、列表、引用），不管界面控件。
+//
+// ## 为什么不去改 `AppFonts.lineHeight`
+//
+// 那个是全局系数：按钮、设置行、工具行、气泡标题全都吃它。调大 0.1
+// 会让 [ToolRow] 那种固定 26px 行高的文字一起长高，图标与文字的
+// 对齐立刻散架 —— 而它们本来就不该跟着长文一起变松。
+// 正文单独留一组数字，才是"给阅读调，不给界面调"。
+//
+// ## 数值怎么来的
+//
+// · 行距 [kAiTextLineHeight] = 1.75，再乘全局 1.14 ≈ **2.0**。
+//   15px 字的行盒从 27.4px 变成 30px，每行多 2.6px —— 一屏十几行
+//   累计起来明显松了，但不会松到"一行一句"那种稀疏感。
+//   中文没有词间空格，1.8 左右读起来仍然偏挤，2.0 是长文比较稳的一档。
+// · 段间距 [kAiParagraphGap] 上下各 6 → 两段之间 **12px**。
+//   原来只有 6px，比行内多出来的空白还少，段落几乎粘成一片；
+//   现在段落之间的空隙明确大于行内空隙，眼睛能分出"换段了"。
+// · 列表项 [kAiListItemGap] 3.5：列表本来就比段落密一档，
+//   给到和段落一样的 6 会把一个列表拆成好几块。
+const double kAiTextLineHeight = 1.75;
+const double kAiParagraphGap = 6;
+const double kAiListItemGap = 3.5;
+
 /// 轻量 Markdown 渲染器。
 ///
 /// 为什么不直接用 flutter_markdown：那份实现会把字体交给它自己的默认值，
@@ -749,7 +775,14 @@ class _MarkdownViewState extends State<MarkdownView> {
     AppSurface s, {
     required bool dark,
   }) {
-    final TextStyle base = AppFonts.read(size: widget.baseSize, color: s.text);
+    // 正文（段落 / 列表内容 / 引用）统一走这一份行距。标题、表格、
+    // 列表符号、代码块各自显式传了 height，不受它影响 —— 它们不是长文，
+    // 变大反而会让一屏少显示好几行。
+    final TextStyle base = AppFonts.read(
+      size: widget.baseSize,
+      color: s.text,
+      height: kAiTextLineHeight,
+    );
     final TextStyle inlineCode = AppFonts.code(
       size: widget.baseSize - 1.6,
       color: s.text,
@@ -835,7 +868,9 @@ class _MarkdownViewState extends State<MarkdownView> {
           _ => widget.baseSize + 1,
         };
         return Padding(
-          padding: EdgeInsets.only(top: h.level <= 2 ? 14 : 10, bottom: 5),
+          // 正文行距变宽之后，标题上下也跟着留一点，否则标题会贴着
+          // 上一段的末行，看起来像被"压"进正文里。
+          padding: EdgeInsets.only(top: h.level <= 2 ? 17 : 12, bottom: 7),
           child: Text.rich(
             TextSpan(
               children: inline(
@@ -865,7 +900,7 @@ class _MarkdownViewState extends State<MarkdownView> {
 
       case final _Quote q:
         return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(vertical: 6),
           child: Container(
             padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
             decoration: BoxDecoration(
@@ -881,15 +916,15 @@ class _MarkdownViewState extends State<MarkdownView> {
 
       case final _ListBlock lb:
         return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 3),
+          padding: const EdgeInsets.symmetric(vertical: 5),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: lb.items.map((_Item it) {
               return Padding(
                 padding: EdgeInsets.only(
                   left: 4.0 + it.indent * 14.0,
-                  top: 2.5,
-                  bottom: 2.5,
+                  top: kAiListItemGap,
+                  bottom: kAiListItemGap,
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -901,7 +936,9 @@ class _MarkdownViewState extends State<MarkdownView> {
                         style: AppFonts.read(
                           size: widget.baseSize,
                           color: s.muted,
-                          height: 1.62,
+                          // 必须和列表内容**同一个行盒高度**：否则
+                          // "1." 会比右边的文字矮一截，不在一条基线上。
+                          height: kAiTextLineHeight,
                         ),
                       ),
                     ),
@@ -917,7 +954,7 @@ class _MarkdownViewState extends State<MarkdownView> {
 
       case final _Paragraph p:
         return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 3),
+          padding: const EdgeInsets.symmetric(vertical: kAiParagraphGap),
           child: Text.rich(TextSpan(children: inline(p.text))),
         );
     }
@@ -992,11 +1029,22 @@ String trimUrlTail(String url) {
 /// `$$...$$` / `\[...\]` 必须排在最前面：否则一句话中间的 `$$x$$`
 /// 会被当成两个 `$...$`，屏幕上留下两个孤零零的美元符号
 /// （这正是"有些公式渲染不出来"的常见来源之一）。
+///
+/// ## 第 4 条分支：**两边带空格的公式**
+///
+/// 模型输出里极其常见的是 `$ \frac{a}{b} $`（`$` 后面、`$` 前面各一个空格）。
+/// 严格规则会把它整段漏掉，于是用户看到原样的 `\frac{a}{b}` ——
+/// 这是"公式没渲染"最主要的来源之一。
+///
+/// 所以单独留一条：允许两边有空白，但**内容里必须出现 LaTeX 特征字符**
+/// （`\`、`^`、`_`、`{`、`}`）。这样「价格是 $ 5 到 $ 10」仍然不会被
+/// 当成公式（那里面没有任何 LaTeX 特征），而 `$ \frac{3}{4} $` 能正常渲染。
 final RegExp _inlineMathPattern = RegExp(
-  r'\$\$((?:\\.|[^$\\])+?)\$\$'
-  r'|\\\[((?:\\.|[^\\])+?)\\\]'
+  r'\$\$([\s\S]+?)\$\$'
+  r'|\\\[([\s\S]+?)\\\]'
   r'|\$(?!\s)((?:\\.|[^$\\\n])*?[^\s$\\])\$(?!\d)'
-  r'|\\\(((?:\\.|[^\\\n])+?)\\\)',
+  r'|\$\s+((?:\\.|[^$\\\n])*?[\\^_{}](?:\\.|[^$\\\n])*?)\s+\$(?!\d)'
+  r'|\\\(([\s\S]+?)\\\)',
 );
 
 /// 数学解析失败时的兜底：把原始 LaTeX 显示出来，而不是整块渲染崩掉。
@@ -1030,10 +1078,16 @@ List<InlineSpan> _inlineSpans(
       );
     }
 
-    // 第 1、2 组是 `$$...$$` / `\[...\]`（整行公式），3、4 组是行内形式
+    // 第 1、2 组是 `$$...$$` / `\[...\]`（整行公式），3、4、5 组是行内形式
     final bool display = m.group(1) != null || m.group(2) != null;
     final String latex =
-        (m.group(1) ?? m.group(2) ?? m.group(3) ?? m.group(4) ?? '').trim();
+        (m.group(1) ??
+                m.group(2) ??
+                m.group(3) ??
+                m.group(4) ??
+                m.group(5) ??
+                '')
+            .trim();
     if (latex.isEmpty) {
       spans.add(TextSpan(text: src.substring(m.start, m.end), style: base));
     } else {
@@ -1788,11 +1842,45 @@ bool _startsBlock(String line) {
       t.startsWith(r'$$') ||
       t.startsWith(r'\[') ||
       t.startsWith(r'\begin{') ||
+      _looksLikeBareMath(line) ||
       _reHeading.hasMatch(line) ||
       _reHr.hasMatch(line) ||
       _reList.hasMatch(line) ||
       _reImageLine.hasMatch(line) ||
       t.startsWith('>');
+}
+
+/// 这一行**整行就是一条公式**，但模型没写 `$`。
+///
+/// 实测里 `\frac{a}{b}`、`\sqrt{x^2+y^2}`、`\sum_{i=1}^n i` 这样单独成行
+/// 的裸 LaTeX 很常见 —— 以前它们被当成普通段落，屏幕上就是原样的一串
+/// 反斜杠和花括号，看起来像"公式没渲染"。
+///
+/// 判断刻意保守（宁可漏，不可错）：
+///  · 必须有一条 `\命令`，且有结构符号（`{}`、`^`、`_`、`=`）；
+///  · 没有中文 —— 中文说明这是正文，不是公式；
+///  · 没有反引号 / `*` / `#` / `|` —— 那是代码或 markdown 标记；
+///  · 不像路径或网址 —— `C:\Users\...` 也含反斜杠，绝不能被当成公式。
+bool _looksLikeBareMath(String line) {
+  final String s = line.trim();
+  if (s.length < 3 || s.length > 240) return false;
+  if (s.contains(r'$') || s.contains('`')) return false;
+  // 已经带定界符的（`\(...\)` / `\[...\]`）交给行内/块级公式解析，别当裸公式
+  if (s.startsWith(r'\(') || s.startsWith(r'\[')) return false;
+  if (RegExp(r'[*#|]').hasMatch(s)) return false;
+  if (RegExp(r'[\u4e00-\u9fff\u3000-\u303f]').hasMatch(s)) return false;
+  // 路径 / URL / 盘符
+  if (RegExp(r'^(?:[A-Za-z]:[\\/]|[A-Za-z]+://|\.{0,2}/)').hasMatch(s)) {
+    return false;
+  }
+  if (!RegExp(r'\\[a-zA-Z]{2,}').hasMatch(s)) return false;
+  // 必须有"这是数学"的结构信号
+  final bool structural =
+      s.contains('{') ||
+      s.contains('^') ||
+      s.contains('_') ||
+      RegExp(r'(^|[^=<>!:])=([^=]|$)').hasMatch(s);
+  return structural;
 }
 
 /// 拆一行表格单元格，容忍首尾竖线可有可无
@@ -1987,6 +2075,13 @@ List<_Block> _parseBlocks(String src) {
     }
 
     if (line.trim().isEmpty) {
+      i++;
+      continue;
+    }
+
+    // 裸公式行（没有 `$` 包着）：整行当块级公式渲染，而不是原样显示 LaTeX。
+    if (_looksLikeBareMath(trimmed)) {
+      blocks.add(_MathBlock(trimmed));
       i++;
       continue;
     }

@@ -32,7 +32,6 @@ class _PythonConsolePageState extends State<PythonConsolePage> {
 
   PyResult? _result;
   bool _running = false;
-  bool _resetNext = false;
 
   @override
   void initState() {
@@ -58,16 +57,12 @@ class _PythonConsolePageState extends State<PythonConsolePage> {
       _result = null;
     });
 
-    final PyResult r = await PythonService.instance.run(
-      code,
-      reset: _resetNext,
-    );
+    final PyResult r = await PythonService.instance.run(code);
 
     if (!mounted) return;
     setState(() {
       _running = false;
       _result = r;
-      _resetNext = false; // 用完就恢复，避免下次误清
     });
   }
 
@@ -172,15 +167,16 @@ class _PythonConsolePageState extends State<PythonConsolePage> {
                 Text(
                   ok
                       ? (py.version ?? '(已就绪)')
-                      : (py.lastError ?? '还没探测到。改一下代码点运行，结果会显示在下面。'),
+                      : (py.lastError ??
+                            '还没探测到。点「运行」会自动解压 Alpine 并安装 python3。'),
                   style: AppFonts.code(size: 11.5, color: s.muted),
                 ),
                 if (ok) ...<Widget>[
                   const SizedBox(height: 3),
                   Text(
                     py.packages == null
-                        ? '内嵌 CPython · 无需任何配置'
-                        : '已装 ${py.packages!.length} 个第三方包',
+                        ? 'Alpine 内置 python3 · 首次运行自动安装'
+                        : '已装 ${py.packages!.length} 个 Python 包',
                     style: AppFonts.body(
                       size: 11.5,
                       color: s.muted,
@@ -240,27 +236,21 @@ class _PythonConsolePageState extends State<PythonConsolePage> {
         ),
         const SizedBox(width: 9),
         GlassButton(
-          label: '清空变量',
-          icon: Icons.restart_alt_rounded,
+          label: '重新探测',
+          icon: Icons.refresh_rounded,
           fontSize: 13,
-          onTap: () {
-            // 只是**标记**下次运行前清空，不立即执行 ——
-            // 用户按下按钮时往往接着就要写新代码，立即清空没有意义
-            setState(() => _resetNext = true);
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('下次运行前会清空之前定义的变量'),
-                duration: Duration(seconds: 2),
-              ),
-            );
+          onTap: () async {
+            await PythonService.instance.refresh();
+            if (mounted) setState(() {});
           },
         ),
         const Spacer(),
-        if (_resetNext)
-          Text(
-            '待清空',
-            style: AppFonts.body(size: 11.5, color: AppColors.warning),
-          ),
+        // 每次运行都是独立进程，变量不会带到下一次；
+        // 这一点必须写在界面上，否则用户会以为"上一轮的变量丢了"。
+        Text(
+          '每次运行独立',
+          style: AppFonts.body(size: 11.5, color: s.muted),
+        ),
       ],
     );
   }

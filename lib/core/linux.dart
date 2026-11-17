@@ -59,24 +59,15 @@ class LinuxInfo {
 
 /// **自带的内嵌 Linux 环境**（proot + Alpine minirootfs）。
 ///
-/// ## 它和 [TermuxService] 的区别
-///
-/// | | TermuxService | 这个 |
-/// |---|---|---|
-/// | 依赖 | 用户**必须装 Termux**，还要手工开 `allow-external-apps` | **零依赖**，APK 自带 |
-/// | 输出 | 只在命令跑完时回一次 | 同样拿完整输出，但**支持 stdin** |
-/// | 交互 | 用不了（没有 stdin） | `apk add` 的 y/n、REPL 都能用 |
-/// | 能装包 | 用 Termux 的 pkg | 用自带的静态 `apk` |
-///
-/// 所以这是**默认通道**：用户开箱即用，不需要任何配置。
-/// Termux 那条路保留着，给"已经在 Termux 里配好了环境"的人用
-/// （那里有他装好的工具链，比空白的 Alpine 更有用）。
+/// 应用启动后自动安装，用户不需要任何操作，也不依赖任何外部应用或
+/// 独立插件。安装后 `apk`（静态版）随环境一起提供，
+/// 可以按需 `apk add` 装包。
 ///
 /// ## 为什么安装要单独一步
 ///
 /// 把 4MB 的 rootfs 解开要几秒，而且解完占约 20MB 磁盘。
-/// 不在启动时做（那会让冷启动变慢、还白占用户空间），
-/// 而是**第一次用终端时**触发，并且让用户看到进度。
+/// 不在启动时**同步**做（那会让冷启动变慢），而是启动后在后台
+/// 自动解压；第一次用终端时如果还没装完，界面会显示进度。
 class LinuxService extends ChangeNotifier {
   LinuxService._();
 
@@ -148,6 +139,32 @@ class LinuxService extends ChangeNotifier {
       await refresh();
       notifyListeners();
     }
+  }
+
+  /// 确保环境已安装：没装就自动装。
+  ///
+  /// 启动时在后台调用一次，用户第一次打开终端时通常已经装好了。
+  /// 并发调用会共享同一次安装（[_installing] 期间等待即可）。
+  Future<bool> ensureInstalled() async {
+    if (!supported) return false;
+    if (_installed) return true;
+    await refresh();
+    if (_installed) return true;
+    return install();
+  }
+
+  /// 确保 Alpine 里有 `python3`，没有就 `apk add`。
+  ///
+  /// 返回 false 表示环境没装好或装包失败（通常是没网）。
+  Future<bool> ensurePython() async {
+    if (!await ensureInstalled()) return false;
+    final LinuxResult probe = await exec('command -v python3');
+    if (probe.ok && probe.stdout.trim().isNotEmpty) return true;
+    final LinuxResult add = await exec(
+      'apk add --no-cache python3',
+      timeout: const Duration(minutes: 3),
+    );
+    return add.ok;
   }
 
   /// 在 Linux 环境里跑一条命令。

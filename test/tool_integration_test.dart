@@ -10,12 +10,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:dsh_agent/core/folder_tool.dart';
+import 'package:dsh_agent/core/skill.dart';
 import 'package:dsh_agent/core/models.dart';
 import 'package:dsh_agent/core/productivity.dart';
 import 'package:dsh_agent/core/store.dart';
-import 'package:dsh_agent/shizuku/shizuku_service.dart';
-import 'package:dsh_agent/tools/folder_tool_tool.dart';
+import 'package:dsh_agent/tools/skill_tool.dart';
 import 'package:dsh_agent/tools/plugin_tool.dart';
 import 'package:dsh_agent/tools/tool.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -25,7 +24,6 @@ import 'test_plugins.dart';
 
 ToolContext _ctx(Settings settings) => ToolContext(
   settings: settings,
-  shizuku: ShizukuService(),
   conversation: Conversation(id: 'c1', title: '测试'),
   workDir: '/tmp/dsh-test',
   searchApiKey: '',
@@ -143,10 +141,10 @@ void main() {
 
     setUp(() async {
       root = await Directory.systemTemp.createTemp('dsh_imp_agent_');
-      await FolderToolStore.instance.configure(root);
+      await SkillStore.instance.configure(root);
       final Directory d = Directory('${root.path}/demo')..createSync();
       File('${d.path}/tool.md').writeAsStringSync('---\ntitle: 演示\n---\n步骤\n');
-      await FolderToolStore.instance.load();
+      await SkillStore.instance.load();
     });
 
     tearDown(() {
@@ -164,7 +162,7 @@ void main() {
         0x69,
         0x6e,
       ]);
-      final String r = await const FolderToolTool().run(
+      final String r = await const SkillTool().run(
         _ctx(_s),
         <String, dynamic>{
           'action': 'import_file',
@@ -182,7 +180,7 @@ void main() {
       final String b64 = base64Encode(utf8.encode('echo hi\n'));
       final String wrapped =
           'data:application/octet-stream;base64,${b64.substring(0, 4)}\n${b64.substring(4)}';
-      final String r = await const FolderToolTool().run(
+      final String r = await const SkillTool().run(
         _ctx(_s),
         <String, dynamic>{
           'action': 'import_file',
@@ -196,7 +194,7 @@ void main() {
     });
 
     test('非法 base64 明确报错，不留下空文件', () async {
-      final String r = await const FolderToolTool().run(
+      final String r = await const SkillTool().run(
         _ctx(_s),
         <String, dynamic>{
           'action': 'import_file',
@@ -211,7 +209,7 @@ void main() {
 
     test('同名默认被拒；显式 overwrite 才能替换', () async {
       Future<String> imp(String content, {bool? overwrite}) =>
-          const FolderToolTool().run(_ctx(_s), <String, dynamic>{
+          const SkillTool().run(_ctx(_s), <String, dynamic>{
             'action': 'import_file',
             'name': 'demo',
             'file': 'a.txt',
@@ -230,7 +228,7 @@ void main() {
     });
 
     test('越界的 file 被拒 —— 模型也可能写出 ../', () async {
-      final String r = await const FolderToolTool().run(
+      final String r = await const SkillTool().run(
         _ctx(_s),
         <String, dynamic>{
           'action': 'import_file',
@@ -244,7 +242,7 @@ void main() {
     });
 
     test('导入 tool.icon 时回执要点明"它现在是图标"', () async {
-      final String r = await const FolderToolTool().run(
+      final String r = await const SkillTool().run(
         _ctx(_s),
         <String, dynamic>{
           'action': 'import_file',
@@ -254,13 +252,13 @@ void main() {
         },
       );
       expect(r, contains('图标'));
-      expect(FolderToolStore.instance.byId('demo')!.hasIcon, isTrue);
+      expect(SkillStore.instance.byId('demo')!.hasIcon, isTrue);
     });
 
     test('read_file 对二进制给说明，而不是把乱码塞进上下文', () async {
       // 不挡的话模型会读到一屏乱码，还可能据此"修"出更离谱的东西
       file('img.png').writeAsBytesSync(<int>[0x89, 0x50, 0x00, 0xFF, 0x0D]);
-      final String r = await const FolderToolTool().run(
+      final String r = await const SkillTool().run(
         _ctx(_s),
         <String, dynamic>{
           'action': 'read_file',

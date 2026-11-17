@@ -1,5 +1,5 @@
 name: dsh_agent
-description: "Zeus — 手机上的 AI agent：Shizuku 系统能力 + 内嵌 Python + 笔记任务"
+description: "Tinkung — 手机上的 AI agent：内置 Alpine Linux + Python + 笔记任务"
 publish_to: 'none'
 
 # versionCode（+131）必须单调递增：Android 用它判断"哪个更新"，
@@ -76,8 +76,7 @@ flutter:
     # 声明过才读得到。少了它，测试里所有中文会渲染成空心方块。
     - assets/fonts/
     - assets/icon/
-    - assets/plugins/
-    - assets/termux/
+    - assets/alpine/
     - assets/tools/
     - assets/pptx_viewer/
     # Agent.md 的推荐模板：设置 → Agent.md → 「填入推荐模板」读它。

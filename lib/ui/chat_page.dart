@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' show ImageFilter;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -14,31 +14,29 @@ import '../ai/agent.dart';
 import '../ai/input_suggestions.dart';
 import '../ai/prompt_improver.dart';
 import '../core/background.dart';
-import '../core/file_diff.dart';
+import '../core/garmin.dart';
 import '../core/image_compress.dart';
 import '../core/linux.dart';
 import '../core/metrics.dart';
 import '../core/model_profile.dart';
-import '../core/folder_tool.dart';
+import '../core/skill.dart';
 import '../core/mentions.dart';
 import '../core/models.dart';
 import '../core/overlay.dart';
-import '../core/phone_control.dart';
 import '../core/productivity.dart';
 import '../core/store.dart';
-import '../core/termux.dart';
 import '../core/terminal_session.dart';
 import '../core/text_marks.dart';
 import '../core/voice_input.dart';
 import '../core/varbank.dart';
 import '../plugins/plugin.dart';
-import '../shizuku/shizuku_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/glass.dart';
 import '../tools/android_tools.dart';
 import '../tools/browser_tool.dart';
 import '../tools/device_tools.dart';
-import '../tools/folder_tool_tool.dart';
+import '../tools/skill_tool.dart';
+import '../tools/garmin_push_tool.dart';
 import '../tools/pc_tool.dart';
 import '../tools/notify_tool.dart';
 import '../tools/obj_tools.dart';
@@ -67,15 +65,16 @@ import '../tools/mark_tool.dart';
 import '../tools/model_tool.dart';
 import '../tools/productivity_tools.dart';
 import '../tools/python_tool.dart';
+import '../tools/linux_tool.dart';
 import '../tools/rule_tool.dart';
-import '../tools/termux_tool.dart';
-import '../tools/ui_tools.dart';
 import '../tools/webview_loader.dart';
 import '../tools/tool.dart';
+import '../core/external_artifact.dart';
+import '../core/external_artifact_bridge.dart';
+import '../tools/external_artifact_tool.dart';
 import 'browser_page.dart';
 
 import 'deep_research_page.dart';
-import 'greeting.dart';
 import 'context_compress.dart';
 import 'anchored_card.dart';
 import 'fullscreen_input_page.dart';
@@ -85,17 +84,48 @@ import 'markdown.dart';
 import 'mention_input.dart';
 import 'models_sheet.dart';
 import 'performance_sheet.dart';
+import 'plan_tree_panel.dart';
+import 'process_group.dart';
 import 'productivity_pages.dart';
 import 'settings_sheet.dart';
-// `ToolIcon` / `kToolIconSize`：`@` 面板要显示工具自己的图标，
+// `SkillIcon` / `kSkillIconSize`：`@` 面板要显示工具自己的图标，
 // 且尺寸必须和工具列表页一致。
-import 'tools_page.dart';
-import 'tool_steps.dart';
+import 'skills_page.dart';
 import 'tool_call_table.dart';
 import 'tool_line.dart';
 import 'widgets.dart';
 import 'image_viewer.dart';
 import 'working_pulse.dart';
+
+/// 消息列表里的**一项**。
+///
+/// 普通项是一条消息；过程项是一轮任务里连续的好几条过程轮消息，
+/// 它们在屏幕上合成一行 [ProcessGroup]。
+class _MessageItem {
+  _MessageItem({
+    required this.indices,
+    required this.process,
+    this.processTools = const <ToolInvocation>[],
+    this.suppressThinking = false,
+  });
+
+  /// 这一项覆盖的原始消息索引（过程项不止一个）。
+  final List<int> indices;
+
+  /// true = 交给 [ProcessGroup] 收成一行；false = 正常 [MessageView]。
+  final bool process;
+
+  /// 普通项：同一轮过程消息上的工具调用，给答复下方的「文件」卡片用。
+  final List<ToolInvocation> processTools;
+
+  /// 普通项：这一轮已经有过程条，别再画一张思考卡。
+  final bool suppressThinking;
+
+  /// 过程项：紧随其后的最终答复索引，把最后一轮的思维链也收进详情。
+  int? reasoningFrom;
+
+  int get first => indices.first;
+}
 
 /// 输入超过这么多字符就**自动存进变量库**，请求里只发引用。
 ///
@@ -130,7 +160,6 @@ class ChatPage extends StatefulWidget {
     required this.settings,
     required this.conversations,
     required this.plugins,
-    required this.shizuku,
     required this.workDir,
     required this.notes,
     required this.tasks,
@@ -140,7 +169,6 @@ class ChatPage extends StatefulWidget {
   final Settings settings;
   final ConversationStore conversations;
   final PluginStore plugins;
-  final ShizukuService shizuku;
   final String workDir;
   final NoteStore notes;
   final TaskStore tasks;
@@ -212,6 +240,18 @@ class _ChatPageState extends State<ChatPage>
   /// 所以"关掉一次"不会永久关闭这个功能。
   bool _suggestDismissed = false;
 
+  /// 输入区当前是不是"居中的空态"。
+  ///
+  /// 条件：新对话（没有任何消息）、输入框还是空的、没挂附件/引用、
+  /// 键盘没弹起、不是横屏分栏。满足时输入框摆在屏幕中间；
+  /// 一旦开始写字或者发出第一条消息，它就回到贴底的位置。
+  ///
+  /// 为什么不用 `_composerH` 之类的高度判断：这是一次**布局状态**的选择，
+  /// 不是测量结果 —— 用内容条件写，才不会出现"某一帧刚好量到 0，
+  /// 框闪了一下"。
+  // 输入框固定贴底，不再居中浮动。
+  bool get _composerCentered => false;
+
   // ---------------------------------------------------------- 互动面板
   InteractionSession? _panelSession;
   double _panelHeight = 320;
@@ -231,11 +271,6 @@ class _ChatPageState extends State<ChatPage>
   final List<CwtResult> _pendingCwt = <CwtResult>[];
   StreamSubscription<CwtRequest>? _cwtSub;
 
-  /// 极简模式：输入框上方「过程」折叠条是否展开。
-  bool _processOpen = false;
-  String? _processFileCache;
-  int _processCacheKey = -1;
-
   /// 横屏导航条里「更多」是否展开（研究 / 浏览器 / 设置）。
   ///
   /// 和抽屉底栏同一个规矩：横屏最缺的是宽度，一排七个入口会把
@@ -245,24 +280,49 @@ class _ChatPageState extends State<ChatPage>
   /// 刚发出、正在播放入场动画的用户消息。播完就移出，历史消息永不重播。
   final Set<String> _enteringBubbles = <String>{};
 
+  // ---------------------------------------------------------- 计划树
+
+  /// 当前会话的计划树（`plan` 工具写入的那份）。
+  ///
+  /// 由 [PlanStore.revision] 事件刷新：模型一 `set` / `update`，
+  /// 聊天页就重新读一次内存缓存，底部那张表立刻打勾 / 换状态。
+  List<PlanNode> _planNodes = const <PlanNode>[];
+
+  /// 这份 [_planNodes] 属于哪个会话。切会话时先不拿旧数据冒充新会话。
+  String _planConvId = '';
+
+  /// 计划内容的签名，只在真的变了才 setState。
+  String _planSig = '';
+
+  /// 正在为哪个会话读盘（防抖：build 里只排一次加载）。
+  String? _planLoadingFor;
+
+  /// 测量底部计划表的高度：消息列表的底部内边距要给它让位。
+  final GlobalKey _planKey = GlobalKey();
+  double _planH = 0;
+
   // （`_fetchingWeb` 已随「从网上」入口一起删除 —— 那个标志只用来在抓取
   //   期间禁用附件面板里的联网项，现在面板里没有联网项了。）
 
   /// 每个会话各自一个 runner：A 在跑时，B 仍然可以发消息。
   final Map<String, AgentRunner> _runners = <String, AgentRunner>{};
   final Set<String> _busyConvIds = <String>{};
+  StreamSubscription<Map<String, dynamic>>? _garminEvents;
+  StreamSubscription<Map<String, dynamic>>? _artifactEvents;
+  final Map<String, Future<void>> _deviceSendQueues = <String, Future<void>>{};
+
+  /// 这次前台周期里有没有尝试过拉起手表中继服务。
+  ///
+  /// 根对话页在应用启动时调用一次 `start()`，这样即使进程被系统杀掉过，
+  /// 重新打开应用也能恢复 app events —— 之前只有进「第三方设备」页才启动，
+  /// 重启后手表发的消息没人接。
+  bool _garminRelayResumed = false;
 
   /// 正在跑**实时互动回合**的会话。
   ///
   /// 这类回合是"用户点一下 → AI 走一步"，消息不进聊天记录、界面不重绘，
   /// 所以通知栏 / 悬浮窗 / 打字动画一概不参与。
   final Set<String> _silentConvIds = <String>{};
-
-  /// 这次任务是否**真的在控制手机**（语义点击、滑动、绘制、am start 等）。
-  ///
-  /// 悬浮窗只在这种情况下显示：普通任务（写代码、查资料）用户切到后台时，
-  /// 界面上没有需要他看的东西，再压一个浮窗纯属打扰。
-  bool _phoneControl = false;
 
   /// **这一轮发送的序号**。每开始一次发送 +1，`_stop()` 也 +1。
   ///
@@ -279,6 +339,12 @@ class _ChatPageState extends State<ChatPage>
 
   /// 是否已经滚到底部。用来决定要不要显示「回到底部」按钮。
   bool _atBottom = true;
+
+  /// 本次长按是否已经触发过"回顶部"。
+  ///
+  /// 长按拖动会连续回调 `onLongPressMoveUpdate`，不设这个闸门的话，
+  /// 手指停在原处时每一帧都会再调一次 `_scrollToTop`。
+  bool _jumpedTop = false;
 
   /// 消息列表滚离顶部了吗？顶栏据此决定是"同色隐身"还是"模糊 + 加浓"。
   bool _scrolled = false;
@@ -325,17 +391,6 @@ class _ChatPageState extends State<ChatPage>
   /// 输入框没关系 —— 用户会以为它是消息列表里的一条。
   static const double _mentionGap = 8;
 
-  /// 「全部工具调用」现在是合上的吗（见 [ToolFoldAllRow]）。
-  ///
-  /// 默认**合上**：agent 跑一件复杂的事会连着调几十次工具，
-  /// 展开状态下聊天流会被工具行占满，正文被推到看不见 —— 那正是
-  /// 用户要折叠它们的理由。
-  ///
-  /// 存在 State 里而不是 Settings 里：它是"我想怎么看这一屏"的临时选择，
-  /// 和主题、模型那些跨会话的偏好不是一类东西。切走再回来会重新合上，
-  /// 这符合直觉（"我上次点开是为了看那一步"）。
-  bool _toolsFolded = true;
-
   /// 横屏左右两栏的分割比例（左栏占可用宽度的比例）。
   double _splitFraction = 0.50;
 
@@ -380,14 +435,31 @@ class _ChatPageState extends State<ChatPage>
     widget.settings.addListener(_onExternalChange);
     widget.conversations.addListener(_onExternalChange);
     widget.plugins.addListener(_onExternalChange);
-    widget.shizuku.addListener(_onExternalChange);
     InteractionHub.instance.addListener(_onInteractionChanged);
     InteractionHub.instance.onEvent = _onPanelEvent;
+    PlanStore.instance.revision.addListener(_onPlanChanged);
     _panelSub = InteractionHub.instance.opens.listen(_onPanelOpen);
     _cwtSub = CwtHub.instance.opens.listen(_onCwtOpen);
     _inputFocus.addListener(_onInputFocus);
     _scroll.addListener(_onScroll);
-
+    // Only the root chat owns device events. It remains mounted while routes
+    // such as the device list or settings are pushed above it.
+    //
+    // Garmin 是 Android 原生通道：桌面端 / widget 测试里没有实现，
+    // 订阅会触发 MissingPluginException。测试环境直接跳过。
+    if (widget.drawer != null && Platform.isAndroid) {
+      _garminEvents = GarminBridge.instance.events.listen(
+        _onGarminEvent,
+        onError: (Object _) {},
+      );
+      _resumeGarminRelayIfNeeded();
+      // 发现已安装的 External Artifact
+      unawaited(ExternalArtifactBridge.instance.discover());
+      _artifactEvents = ExternalArtifactBridge.instance.inboxEvents.listen(
+        _onArtifactEvent,
+        onError: (Object _) {},
+      );
+    }
     // 同 `HomeShell.build` 里的守卫：历史可能是**还在读**（启动初期
     // 列表天然为空），这时候建会话会多出一条空白页。只有 `loaded`
     // 之后才谈得上"一条都没有"。
@@ -395,13 +467,11 @@ class _ChatPageState extends State<ChatPage>
         widget.conversations.conversations.isEmpty) {
       widget.conversations.createNew();
     }
-    // 探一下两条命令通道。
+    // 探一下 Linux 环境。
     //
     // **必须在会话开始前探完**：系统提示词里会写"Linux 环境可用 / 未安装"，
-    // 而那句话决定模型会不会想到用 `termux` 工具。
-    // 不探的话它默认是"没装"，模型就会以为没有 Linux 可用。
+    // 而那句话决定模型会不会想到用 `linux` 工具。
     LinuxService.instance.refresh();
-    TermuxService.instance.refresh();
   }
 
   @override
@@ -413,15 +483,17 @@ class _ChatPageState extends State<ChatPage>
     widget.settings.removeListener(_onExternalChange);
     widget.conversations.removeListener(_onExternalChange);
     widget.plugins.removeListener(_onExternalChange);
-    widget.shizuku.removeListener(_onExternalChange);
     InteractionHub.instance.removeListener(_onInteractionChanged);
     InteractionHub.instance.onEvent = null;
+    PlanStore.instance.revision.removeListener(_onPlanChanged);
     _panelReactTimer?.cancel();
     _panelReactRetry?.cancel();
     _panelSub?.cancel();
     _cwtSub?.cancel();
     _inputFocus.removeListener(_onInputFocus);
     _scroll.removeListener(_onScroll);
+    _garminEvents?.cancel();
+    _artifactEvents?.cancel();
     _inputScroll.dispose();
     _suggestTimer?.cancel();
     _cancelUpdateTimers();
@@ -461,6 +533,61 @@ class _ChatPageState extends State<ChatPage>
         _panelSession = active;
       }
     });
+    // 切到另一条对话时，底部计划表也要跟着换。
+    unawaited(_reloadPlan(_conv));
+    // 历史是异步读进来的：刚启动时这里是空的，读完才会知道有没有
+    // 绑定过手表。每次会话列表变化都轻量地探一次，有绑定就拉起中继。
+    _resumeGarminRelayIfNeeded();
+  }
+
+  // ---------------------------------------------------------- 计划树刷新
+
+  void _onPlanChanged() {
+    if (!mounted) return;
+    unawaited(_reloadPlan(_conv));
+  }
+
+  /// 读当前会话的计划树，内容有变化才触发重建。
+  Future<void> _reloadPlan(Conversation conv) async {
+    final String id = conv.id;
+    final List<PlanNode> nodes = await PlanStore.instance.nodesOf(
+      id,
+      widget.workDir,
+    );
+    if (!mounted || _conv.id != id) return;
+    final String sig = nodes
+        .map(
+          (PlanNode n) =>
+              '${n.id}|${n.status}|${n.title}|${n.note}|${n.after.join(',')}',
+        )
+        .join('\n');
+    if (_planConvId == id && _planSig == sig) return;
+    setState(() {
+      _planConvId = id;
+      _planSig = sig;
+      _planNodes = List<PlanNode>.unmodifiable(nodes);
+    });
+  }
+
+  /// 有设备专属会话才启动 Garmin 中继。
+  ///
+  /// 不无条件启动：没用过手表的用户会在通知栏里多一条常驻通知。
+  void _resumeGarminRelayIfNeeded() {
+    if (_garminRelayResumed || !widget.conversations.loaded) return;
+    final bool bound = widget.conversations.conversations.any(
+      (Conversation c) => c.deviceId != null,
+    );
+    if (!bound) return;
+    _garminRelayResumed = true;
+    unawaited(_startGarminRelay());
+  }
+
+  Future<void> _startGarminRelay() async {
+    try {
+      await GarminBridge.instance.start();
+    } catch (_) {
+      // 设备页打开时还会再试；这里失败不该影响聊天页。
+    }
   }
 
   void _onPanelOpen(InteractionSession s) {
@@ -616,241 +743,6 @@ class _ChatPageState extends State<ChatPage>
   }
 
   /// 输入框上方的「修改请求」清单：带背景、可整体移除。
-  // ---------------------------------------------------------- 极简过程
-  //
-  // 极简模式下，过程**不画在消息里**，而是输入框上方一条可展开的「过程」：
-  //
-  //  · 外面只有一句「正在研究如何… / 正在获取…」；
-  //  · 点开才看到历史的工具调用和文件改动；
-  //  · 回答结束后它不消失，随时能回看。
-  //
-  // 为什么不放在消息气泡里：一**轮**任务会被拆成多个 assistant 消息
-  // （每调一轮工具就多一条），单条消息里的 tools 只是那一轮，拼不出
-  // "历史"。这里从整场会话取，才真的是过程全貌。
-
-  /// 当前这一轮从哪条消息开始：上一条**可见用户消息**之后。
-  ///
-  /// 过程条只展示"这次任务"的历史，不把半年前的 200 次工具调用都翻出来。
-  int get _processStart {
-    for (int i = _conv.messages.length - 1; i >= 0; i--) {
-      final ChatMessage m = _conv.messages[i];
-      if (!m.hidden && m.role == Role.user) return i;
-    }
-    return 0;
-  }
-
-  List<ToolInvocation> get _processTools => <ToolInvocation>[
-    for (int i = _processStart; i < _conv.messages.length; i++)
-      if (!_conv.messages[i].hidden) ..._conv.messages[i].tools,
-  ];
-
-  ToolInvocation? get _runningProcessTool {
-    for (final ToolInvocation t in _processTools.reversed) {
-      if (t.status == InvocationStatus.running) return t;
-    }
-    return null;
-  }
-
-  /// 极简状态行的一句话：只说"在干什么"，不铺参数。
-  String _liveProcessLabel(ToolInvocation t) {
-    final Map<String, dynamic> a = t.args;
-    String? pick(List<String> keys) {
-      for (final String k in keys) {
-        final dynamic v = a[k];
-        if (v == null) continue;
-        final String text = v.toString().trim();
-        if (text.isNotEmpty) return text;
-      }
-      return null;
-    }
-
-    final String? raw = pick(<String>[
-      'query',
-      'url',
-      'path',
-      'command',
-      'prompt',
-      'title',
-      'package',
-      'id',
-    ]);
-    final String short = raw == null
-        ? ''
-        : (raw.length > 22 ? raw.substring(0, 22) : raw);
-
-    switch (t.name) {
-      case 'web':
-        final String action = a['action']?.toString() ?? '';
-        if (short.isEmpty) return '正在获取资料';
-        return action == 'search' ? '正在搜索「$short」' : '正在获取「$short」';
-      case 'browser':
-        return short.isEmpty ? '正在打开网页' : '正在打开「$short」';
-      case 'read_image':
-      case 'open_file':
-      case 'file_op':
-      case 'pc':
-        return short.isEmpty ? '正在获取文件' : '正在获取「$short」';
-      case 'knowledge':
-        return '正在研究如何从知识库找答案';
-      case 'change_think':
-        return short.isEmpty ? '正在研究如何修改文件' : '正在研究如何修改「$short」';
-      case 'python':
-      case 'termux':
-      case 'run_shell':
-        return short.isEmpty ? '正在研究如何执行' : '正在研究如何完成「$short」';
-      case 'generate_image':
-        return short.isEmpty ? '正在生成' : '正在生成「$short」';
-      case 'ui_action':
-      case 'app_manage':
-      case 'system_settings':
-      case 'screen_capture':
-      case 'get_location':
-      case 'draw_path':
-        return '正在研究如何操作手机';
-      default:
-        final (IconData _, String name) = ToolDisplay.of(t.name);
-        return short.isEmpty ? '正在研究如何「$name」' : '正在研究如何「$name」：$short';
-    }
-  }
-
-  /// 整场会话里出现过的文件路径文本（只在展开时才算，避免流式输出时每帧扫）。
-  String get _processFileText {
-    final int start = _processStart;
-    int key = start * 131;
-    for (int i = start; i < _conv.messages.length; i++) {
-      final ChatMessage m = _conv.messages[i];
-      key += m.content.length + m.tools.length * 31;
-    }
-    final String? cached = _processFileCache;
-    if (cached != null && key == _processCacheKey) return cached;
-
-    final List<String> parts = <String>[];
-    for (int i = start; i < _conv.messages.length; i++) {
-      final ChatMessage m = _conv.messages[i];
-      if (m.hidden) continue;
-      if (m.content.trim().isNotEmpty) parts.add(m.content);
-      for (final ToolInvocation t in m.tools) {
-        parts.add(t.argumentsJson);
-        final String out = t.output ?? '';
-        if (out.trim().isNotEmpty) {
-          parts.add(out.length > 3000 ? out.substring(0, 3000) : out);
-        }
-      }
-    }
-    final String text = parts.join('\n');
-    _processFileCache = text;
-    _processCacheKey = key;
-    return text;
-  }
-
-  List<FileChange> get _processChanges => <FileChange>[
-    for (final ToolInvocation t in _processTools) ...t.changes,
-  ];
-
-  /// 极简过程：**气泡下面一行字**，没有卡片、没有背景。
-  ///
-  /// 位置见 `_messageList`：挂在最后一条用户消息之后、AI 正文之前，也就是
-  /// “气泡下边、AI 原文顶部左边”。默认只有一句「正在研究如何… / 正在获取…」；
-  /// 点开才显示这一轮的全部工具调用和文件修改，而且内容在固定高度里滚动，
-  /// 不会再把聊天页顶走。
-  Widget _minimalProcessRow(AppSurface s) {
-    final List<ToolInvocation> tools = _processTools;
-    final ToolInvocation? running = _runningProcessTool;
-    final bool busy = _busyFor(_conv);
-    final bool hasHistory = tools.isNotEmpty;
-    if (!hasHistory && !busy) return const SizedBox.shrink();
-
-    final bool expanded = _processOpen && hasHistory;
-    final double bodyCap = math.min(
-      240.0,
-      MediaQuery.sizeOf(context).height * 0.28,
-    );
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 2, bottom: 2, right: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: hasHistory
-                ? () => setState(() => _processOpen = !_processOpen)
-                : null,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 5),
-              child: Row(
-                children: <Widget>[
-                  if (running != null || busy)
-                    // 和上面静止时的 `timeline_rounded` 同形同尺寸：
-                    // 状态在"进行中/已完成"之间切换时，图标不跳。
-                    WorkingPulse(
-                      size: 14,
-                      icon: Icons.timeline_rounded,
-                      color: s.muted,
-                    )
-                  else
-                    Icon(Icons.timeline_rounded, size: 14, color: s.muted),
-                  const SizedBox(width: 7),
-                  Flexible(
-                    child: Text(
-                      running != null
-                          ? _liveProcessLabel(running)
-                          : busy
-                          ? (hasHistory ? '正在研究下一步' : '正在研究如何回答')
-                          : '过程 · ${tools.length} 步',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppFonts.body(
-                        size: 12,
-                        color: s.muted,
-                        height: 1.3,
-                      ),
-                    ),
-                  ),
-                  if (hasHistory) ...<Widget>[
-                    const SizedBox(width: 2),
-                    Icon(
-                      expanded
-                          ? Icons.expand_less_rounded
-                          : Icons.expand_more_rounded,
-                      size: 16,
-                      color: s.muted,
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          AnimatedSize(
-            duration: const Duration(milliseconds: 160),
-            alignment: Alignment.topCenter,
-            child: !expanded
-                ? const SizedBox(width: double.infinity)
-                : Padding(
-                    padding: const EdgeInsets.only(left: 19, top: 2, bottom: 4),
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(maxHeight: bodyCap),
-                      child: SingleChildScrollView(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            ToolStepGroup(tools: tools, collapse: false),
-                            GeneratedFiles(
-                              text: _processFileText,
-                              live: running != null,
-                              plain: true,
-                              changes: _processChanges,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _cwtStrip(AppSurface s) {
     final int total = _pendingCwt.fold<int>(
@@ -943,7 +835,14 @@ class _ChatPageState extends State<ChatPage>
 
     _appInForeground = !background;
 
-    if (background && _busyConvIds.isNotEmpty && _phoneControl) {
+    // 回到前台时再确认一次中继服务还活着：Android 可能在我们切出去
+    // 之后把它回收掉。`start` 是幂等的，服务已在跑就只是重读一次设备。
+    if (state == AppLifecycleState.resumed) {
+      _garminRelayResumed = false;
+      _resumeGarminRelayIfNeeded();
+    }
+
+    if (background && _busyConvIds.isNotEmpty) {
       // 真的切出去了且正在干活 → 才显示浮窗
       OverlayService.showActivity(_lastActivity);
     } else if (!background) {
@@ -959,35 +858,210 @@ class _ChatPageState extends State<ChatPage>
     return widget.conversations.createNew();
   }
 
-  // ------------------------------------------------------------------ 工具表
+  void _onGarminEvent(Map<String, dynamic> event) {
+    if (!mounted) return;
+    final String? deviceId = event['deviceId']?.toString();
+    if (deviceId == null || deviceId == '-1') return;
 
-  ToolRegistry _buildRegistry() {
-    final ToolRegistry r = ToolRegistry();
-
-    // 需要 shell 的工具只在 Shizuku 就绪时注册。
-    // 未就绪时注册它们只会让模型反复调用然后拿到一堆「无法执行」，
-    // 白白浪费轮次，还会让用户以为整个应用不能用。
-    if (widget.shizuku.ready) {
-      r.registerAll(<AgentTool>[
-        const ShellTool(),
-        const AppManagerTool(),
-        const FileTool(),
-        const SettingsTool(),
-        const CaptureTool(),
-      ]);
+    // 手表端「同步」：把这条设备对话最后一条回答重新推过去。
+    // 手表重启/重开应用后本地可能只剩问题，这个动作能把它补回来。
+    if (event['type'] == 'sync') {
+      final Conversation? conversation = widget.conversations.conversations
+          .where((Conversation item) => item.deviceId == deviceId)
+          .firstOrNull;
+      if (conversation != null) {
+        final ChatMessage? last = _lastAssistantReply(conversation);
+        if (last != null) {
+          unawaited(_pushDeviceReply(conversation, last.content));
+        }
+      }
+      return;
     }
 
-    // 这两个不依赖 Shizuku，任何情况下都可直接用
+    if (event['type'] == 'clear') {
+      final Conversation? conversation = widget.conversations.conversations
+          .where((Conversation item) => item.deviceId == deviceId)
+          .firstOrNull;
+      if (conversation != null) {
+        widget.conversations.clearConversation(conversation.id);
+      }
+      return;
+    }
+    if (event['type'] != 'ask') return;
+    final String text = event['text']?.toString().trim() ?? '';
+    if (text.isEmpty) return;
+    final String name = event['deviceName']?.toString() ?? '佳明设备';
+
+    // 找不到就**自动建一条**设备对话，而不是直接 return。
+    // 用户可能刚清过历史、或者在别的手机上绑过手表；手表既然发问了，
+    // 这条消息就不该静默消失。
+    Conversation? conversation = widget.conversations.conversations
+        .where((Conversation item) => item.deviceId == deviceId)
+        .firstOrNull;
+    conversation ??= widget.conversations.conversationForDevice(
+      deviceId,
+      name,
+      select: false,
+    );
+
+    // 老会话标题可能还是 `Instinct 2` / `instinct2`，顺手统一成「佳明设备」。
+    if (conversation.title != name &&
+        conversation.title.toLowerCase().contains('instinct')) {
+      widget.conversations.rename(conversation.id, name);
+    }
+
+    _queueDeviceMessage(conversation, text, name);
+  }
+
+  void _onArtifactEvent(Map<String, dynamic> event) {
+    if (!mounted) return;
+    if (event['type'] != 'artifact_ask') return;
+    final String authority = event['authority']?.toString() ?? '';
+    if (authority.isEmpty) return;
+    final String label = event['label']?.toString() ?? authority;
+    final String message = event['message']?.toString().trim() ?? '';
+    if (message.isEmpty) return;
+    final String hintConvId = event['convId']?.toString() ?? '';
+
+    // 找或建这个 artifact 的专属会话
+    // artifactId 用 authority 作为唯一标识（类似 deviceId）
+    Conversation? conv = widget.conversations.conversations
+        .where((Conversation c) => c.artifactId == authority)
+        .firstOrNull;
+    if (conv == null) {
+      if (hintConvId.isNotEmpty) {
+        // 外部指定了 convId，尝试按 id 找
+        conv = widget.conversations.conversations
+            .where((Conversation c) => c.id == hintConvId)
+            .firstOrNull;
+      }
+    }
+    conv ??= widget.conversations.conversationForArtifact(
+      authority,
+      label,
+      select: false,
+    );
+
+    _queueDeviceMessage(conv, message, label);
+  }
+
+  ChatMessage? _lastAssistantReply(Conversation conversation) {
+    for (int i = conversation.messages.length - 1; i >= 0; i--) {
+      final ChatMessage m = conversation.messages[i];
+      if (m.role == Role.assistant &&
+          !m.hidden &&
+          m.content.trim().isNotEmpty &&
+          (m.error ?? '').isEmpty) {
+        return m;
+      }
+    }
+    return null;
+  }
+
+  /// 这一轮结束后自动把最终回答推给手表。
+  ///
+  /// 跳过两种情况：
+  ///  · 模型已经成功调用过 `garmin_push`（再推一次会重复）；
+  ///  · 这一轮没有正文（只有工具调用 / 被停止）。
+  void _autoPushDeviceReply(Conversation conversation, int from) {
+    final List<ChatMessage> added = conversation.messages.length > from
+        ? conversation.messages.sublist(from)
+        : const <ChatMessage>[];
+    final bool alreadyPushed = added.any(
+      (ChatMessage m) => m.tools.any(
+        (ToolInvocation t) =>
+            t.name == 'garmin_push' && t.status == InvocationStatus.success,
+      ),
+    );
+    if (alreadyPushed) return;
+
+    ChatMessage? reply;
+    for (final ChatMessage m in added) {
+      if (m.role == Role.assistant &&
+          !m.hidden &&
+          m.content.trim().isNotEmpty &&
+          (m.error ?? '').isEmpty) {
+        reply = m;
+      }
+    }
+    if (reply == null) return;
+    unawaited(_pushDeviceReply(conversation, reply.content));
+  }
+
+  /// 把一条回答推给手表。内容先清掉 Markdown，再按长度截断 ——
+  /// 手表屏幕小，几千字会滚很久，BLE 也传得慢。
+  Future<void> _pushDeviceReply(
+    Conversation conversation,
+    String content,
+  ) async {
+    final int? deviceId = int.tryParse(conversation.deviceId ?? '');
+    if (deviceId == null) return;
+    final String text = GarminPushTool.watchText(content);
+    if (text.isEmpty) return;
+    try {
+      await GarminBridge.instance.push(
+        deviceId: deviceId,
+        deviceName: conversation.title,
+        text: text,
+      );
+    } catch (_) {
+      // 手表可能刚好断开。聊天里仍然保留完整回答，不把错误塞进正文。
+    }
+  }
+
+  void _queueDeviceMessage(
+    Conversation conversation,
+    String text,
+    String speaker,
+  ) {
+    final String conversationId = conversation.id;
+    final Future<void> previous =
+        _deviceSendQueues[conversationId] ?? Future<void>.value();
+    late final Future<void> next;
+    next = previous
+        .catchError((Object _) {})
+        .then((_) async {
+          if (!mounted) return;
+          // 这条设备对话可能正在跑用户手输的一轮。`_send` 遇到
+          // `_running` 会直接返回 —— 手表发来的这句话就静默丢了。
+          // 在这里等它收工，最多等 3 分钟；比"丢掉"好。
+          final DateTime deadline = DateTime.now().add(
+            const Duration(minutes: 3),
+          );
+          while (mounted &&
+              _running(conversation.id) &&
+              DateTime.now().isBefore(deadline)) {
+            await Future<void>.delayed(const Duration(milliseconds: 300));
+          }
+          if (!mounted) return;
+          await _send(
+            preset: text,
+            speaker: speaker,
+            targetConversation: conversation,
+          );
+        })
+        .whenComplete(() {
+          if (identical(_deviceSendQueues[conversationId], next)) {
+            _deviceSendQueues.remove(conversationId);
+          }
+        });
+    _deviceSendQueues[conversationId] = next;
+  }
+
+  // ------------------------------------------------------------------ 工具表
+
+  ToolRegistry _buildRegistry({Conversation? conversation}) {
+    final ToolRegistry r = ToolRegistry();
+    if ((conversation ?? _conv).deviceId != null) {
+      r.register(const GarminPushTool());
+    }
+
+    // 本地文件、联网、笔记与任务：无条件可用。
     r.registerAll(<AgentTool>[
+      const FileTool(),
       const WebTool(),
       const BrowserTool(),
       const ImageTool(),
-      // 手机控制：控件树 / 语义动作 / 连续绘制。依赖无障碍服务，
-      // 但**无条件注册** —— 没开时工具会返回一句可执行的开启提示，
-      // 比"工具根本不存在、模型以为做不到"清楚。
-      const UiTreeTool(),
-      const UiActionTool(),
-      const DrawPathTool(),
       // 笔记与任务：agent 要能真的写进去，"记一下""提醒我"才有意义
       const NotesTool(),
       const TasksTool(),
@@ -1032,7 +1106,7 @@ class _ChatPageState extends State<ChatPage>
     // **文件夹工具（Tool）**：成套的做法，按需读取。
     // 只注册一个入口，不把每个 Tool 都注册成工具 ——
     // 见 LoadToolTool 的注释（工具列表越长，模型选错越多）。
-    r.register(const FolderToolTool());
+    r.register(const SkillTool());
 
     // **电脑控制**：和电脑上的 `pc_agent.exe` 通信（exec / read / write / ls）。
     //
@@ -1056,30 +1130,17 @@ class _ChatPageState extends State<ChatPage>
     // 就会老老实实地把警告写进正文，那正是"容易被漏看"的那种写法。
     r.register(const ChatAlarmTool());
 
-    // Linux 环境（`termux` 工具）的注册条件。
+    // Linux 环境（`linux` 工具）：平台支持就注册。
     //
-    // ## 为什么"有内置环境就注册"而不是"装好了才注册"
-    //
-    // 这里原来只在 Termux 可用时才注册，于是**内置的 Alpine 装好之后
-    // 模型也不知道有这个工具** —— 用户问"装个 ffmpeg"，模型会说做不到。
-    // （用户反馈的原话就是"ai 不知道有 termux 在里面"。）
-    //
-    // 现在只要**平台支持内置环境**就注册：真没装的话工具会返回一句
-    // "让用户去设置里点一下安装"，那是有用的信息；
-    // 而工具**不存在**时模型只会说"我没有这个能力" —— 那是错的。
-    //
+    // 只要**平台支持内置环境**就注册：真没装好的话工具会返回一句
+    // 可操作的提示；而工具**不存在**时模型只会说"我没有这个能力"。
     // 和下面 Python 那处同一个取舍：把失败藏起来比失败本身更糟。
-    if (TermuxService.instance.canAttempt || LinuxService.instance.supported) {
-      r.register(const TermuxTool());
+    if (LinuxService.instance.supported) {
+      r.register(const LinuxTool());
     }
 
-    // 内嵌 Python 是**应用自带**的，**无条件注册**。
+    // Alpine 里的 Python 是**应用自带**的，**无条件注册**。
     //
-    // 这里原来写成"可用时才注册"，结果是个很糟的失败模式：
-    // Python 起不来 → 工具从注册表消失 → agent 压根不知道有这东西
-    // → 用户看到的是"agent 引用不了 python"，**完全看不到真正的原因**。
-    //
-    // 把失败藏起来比失败本身更糟。现在无条件注册，
     // 真出问题时工具会返回明确的错误信息，用户和模型都能看到。
     r.register(const PythonTool());
 
@@ -1127,7 +1188,8 @@ class _ChatPageState extends State<ChatPage>
     }
     for (final McpServer server
         in McpStore.maybeInstance?.enabledServers ?? const <McpServer>[]) {
-      for (final McpToolInfo info in server.tools) {
+      for (final McpToolInfo info in server.enabledTools) {
+        if (server.isBlocked) continue;
         // 极端情况下和内置/插件重名（比如用户把服务器起名叫 mcp_…）
         // 也不覆盖：先注册的赢，避免工具表里出现两个同名函数。
         if (r.byName(info.exposedName) != null) continue;
@@ -1173,12 +1235,19 @@ class _ChatPageState extends State<ChatPage>
 
     for (final PluginTool t in widget.plugins.enabledTools()) {
       if (r.byName(t.name) != null) continue;
-      if (!widget.shizuku.ready && t.plugin.kind == PluginKind.shell) continue;
       r.register(t);
     }
 
-    // 档案白名单。内置免费档只拿到基础工具，shell / Termux / 浏览器
-    // 等高权限能力不会出现在模型看到的工具表里。
+    // External Artifact：把所有已发现的第三方工具注册进来
+    for (final ExternalArtifact artifact
+        in ExternalArtifactStore.instance.artifacts) {
+      for (final ArtifactToolDef t in artifact.tools) {
+        r.register(ExternalArtifactTool(artifact: artifact, toolDef: t));
+      }
+    }
+
+    // 档案白名单。内置免费档只拿到基础工具，高权限能力不会出现在
+    // 模型看到的工具表里。
     final List<String>? allow = widget.settings.activeProfile?.toolAllowlist;
     if (allow != null) {
       r.retainWhere((AgentTool t) => allow.contains(t.name));
@@ -1460,7 +1529,6 @@ class _ChatPageState extends State<ChatPage>
   /// 给「图片解析 / 上下文揣测」用的工具上下文。
   ToolContext _suggestCtx(Conversation conv) => ToolContext(
     settings: widget.settings,
-    shizuku: widget.shizuku,
     conversation: conv,
     workDir: widget.workDir,
     searchApiKey: widget.settings.searchApiKey,
@@ -1897,8 +1965,14 @@ class _ChatPageState extends State<ChatPage>
     String? preset,
     bool silent = false,
     bool silentPrompt = false,
+    String? speaker,
+    Conversation? targetConversation,
   }) async {
     String text = (preset ?? _input.text).trim();
+    final bool targetedDeviceMessage = targetConversation != null;
+    final bool externalTarget =
+        targetConversation != null &&
+        targetConversation.id != widget.conversations.currentId;
     // ---- 输入框里的"已存变量库"占位标记 → 变量引用 ----
     //
     // 输入框里那段 `\u0000名字\u0000` 是给**界面**看的占位（见
@@ -1923,7 +1997,10 @@ class _ChatPageState extends State<ChatPage>
     }
     // 「深入研究」标签：把这一条当作研究请求发出去，发完标签清掉。
     // 没写内容也允许 —— 标签本身就是"请做深入研究"的意思。
-    if (_pendingResearch && !silent && !silentPrompt) {
+    if (_pendingResearch &&
+        !targetedDeviceMessage &&
+        !silent &&
+        !silentPrompt) {
       final String topic = text.isEmpty ? '（见上文）' : text;
       text =
           '请对下面的主题做深入研究：多轮检索、交叉验证，最后给出一份带出处的报告。'
@@ -1933,11 +2010,11 @@ class _ChatPageState extends State<ChatPage>
     // 静默回合（实时互动）与"只藏提问"的回合（关闭时的收尾反馈）
     // 都不该带上待发附件、框选请求或引用 —— 它们不是用户发起的对话。
     final bool hidePrompt = silent || silentPrompt;
-    final List<Attachment> atts = hidePrompt
+    final List<Attachment> atts = hidePrompt || targetedDeviceMessage
         ? <Attachment>[]
         : List<Attachment>.from(_pending);
-    final Conversation conv = _conv;
-    final String cwtText = hidePrompt
+    final Conversation conv = targetConversation ?? _conv;
+    final String cwtText = hidePrompt || targetedDeviceMessage
         ? ''
         : _pendingCwt.map((CwtResult r) => r.toPrompt()).join('\n\n');
     final bool hasCwt = cwtText.isNotEmpty;
@@ -2015,7 +2092,9 @@ class _ChatPageState extends State<ChatPage>
       return;
     }
 
-    final MessageQuote? quote = hidePrompt ? null : _pendingQuote;
+    final MessageQuote? quote = hidePrompt || targetedDeviceMessage
+        ? null
+        : _pendingQuote;
 
     // ---- 先把用户消息**放进会话**，再去做「描述改进」 ----
     //
@@ -2043,7 +2122,7 @@ class _ChatPageState extends State<ChatPage>
     //    否则"上次为什么那么答"无法复现。
     final String mentionCtx = MentionParser.buildContext(
       text,
-      tools: FolderToolStore.instance,
+      tools: SkillStore.instance,
       plugins: widget.plugins,
     );
 
@@ -2078,10 +2157,11 @@ class _ChatPageState extends State<ChatPage>
       mentionContext: mentionCtx.isEmpty ? null : mentionCtx,
       // 实时互动：进上下文，但不画进聊天记录。
       hidden: hidePrompt,
+      speaker: speaker,
     );
     setState(() {
       conv.messages.add(sent);
-      if (!hidePrompt) {
+      if (!hidePrompt && !targetedDeviceMessage) {
         _enteringBubbles.add(sent.id);
         _pending.clear();
         _pendingCwt.clear();
@@ -2092,9 +2172,8 @@ class _ChatPageState extends State<ChatPage>
       }
       _busyConvIds.add(conv.id);
       if (silent) _silentConvIds.add(conv.id);
-      _phoneControl = false;
     });
-    if (!hidePrompt) {
+    if (!hidePrompt && !targetedDeviceMessage) {
       _input.clear();
       // 占位标记随清空一起失效 —— 不清的话，下一条消息进来时
       // `_maybeStashLongInput` 会以为"标记还在"，于是不再处理新长文本。
@@ -2104,9 +2183,11 @@ class _ChatPageState extends State<ChatPage>
     if (!silent) widget.conversations.touch(conv);
 
     // 静默回合没有新气泡，滚动会打断用户看棋盘。
-    if (!silent) _scrollToEnd();
+    if (!silent && !externalTarget) _scrollToEnd();
 
-    if (!hidePrompt && widget.settings.improvePrompt) {
+    if (!hidePrompt &&
+        !targetedDeviceMessage &&
+        widget.settings.improvePrompt) {
       // 记下这是第几轮发送：改写期间用户按了停止（或者又开了新一轮）
       // 就把序号推进，下面比对不上就**真的取消**。
       final int seq = (_sendSeqByConv[conv.id] ?? 0) + 1;
@@ -2144,10 +2225,10 @@ class _ChatPageState extends State<ChatPage>
       });
     }
 
+    final int assistantStart = conv.messages.length;
     final AgentRunner runner = AgentRunner(
       settings: widget.settings,
-      shizuku: widget.shizuku,
-      registry: _buildRegistry(),
+      registry: _buildRegistry(conversation: conv),
       workDir: widget.workDir,
       notes: widget.notes,
       tasks: widget.tasks,
@@ -2205,6 +2286,11 @@ class _ChatPageState extends State<ChatPage>
           );
         },
       );
+      // 设备对话：模型不一定每次都记得调用 `garmin_push`。
+      // 这一轮结束后自动把最终回答推过去；如果它已经调用成功则不重复推。
+      if (!silent && conv.deviceId != null) {
+        _autoPushDeviceReply(conv, assistantStart);
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -2228,7 +2314,6 @@ class _ChatPageState extends State<ChatPage>
           setState(() {
             _busyConvIds.remove(conv.id);
             _silentConvIds.remove(conv.id);
-            _phoneControl = false;
             // 新一轮回答结束：如果用户之前手动关过建议，
             // 下次输入时允许它重新出现。静默回合不算"回答"。
             if (!silent) _suggestDismissed = false;
@@ -2354,8 +2439,6 @@ class _ChatPageState extends State<ChatPage>
     // 找正在跑的那个
     for (final ToolInvocation inv in tools.reversed) {
       if (inv.status == InvocationStatus.running) {
-        final bool control = isPhoneControlCall(inv.name, inv.args);
-        if (control) _phoneControl = true;
         // 用调用当时记下的名字/摘要。这里原来每次重绘都重建一遍注册表
         // （遍历 MCP 服务器、插件、权限判断），而这个回调是**每个 token
         // 都会走**的热路径 —— 重建的结果还未必是当时那个工具。
@@ -2371,8 +2454,8 @@ class _ChatPageState extends State<ChatPage>
             : '正在执行：$label · ${detail.length > 40 ? '${detail.substring(0, 40)}…' : detail}';
         _pushActivity(text);
         // 工具**开始执行时**应用已经在后台：生命周期回调早就过去了，
-        // 这里补一次显示，否则第一下启动别的应用就看不到浮窗。
-        if (control && !_appInForeground) {
+        // 这里补一次显示，否则就看不到浮窗。
+        if (!_appInForeground) {
           OverlayService.showActivity(text);
         }
         return;
@@ -2403,7 +2486,6 @@ class _ChatPageState extends State<ChatPage>
     _runners.remove(conv.id)?.abort();
     setState(() {
       _busyConvIds.remove(conv.id);
-      _phoneControl = false;
     });
   }
 
@@ -2465,6 +2547,29 @@ class _ChatPageState extends State<ChatPage>
     });
   }
 
+  /// 滚到顶。给「回到底部」按钮的**长按上拖**用。
+  ///
+  /// 为什么是"滚到顶"而不是"往上翻一屏"：这个手势的语义是
+  /// "我想回到开头"，一屏一屏地翻还要再按好几下，不如一次到位。
+  /// 动画比 [_scrollToEnd] 稍长（320ms），因为距离通常远得多，
+  /// 太快会像跳帧。
+  void _scrollToTop() {
+    if (!_scroll.hasClients) return;
+    // 先清掉"已到底"的判定，否则 `_scrollToEnd(force: false)` 仍有资格
+    // 在下一批消息到达时把用户拽回底部。
+    if (_atBottom) setState(() => _atBottom = false);
+    _scroll
+        .animateTo(
+          0,
+          duration: const Duration(milliseconds: 320),
+          curve: Curves.easeOutCubic,
+        )
+        .whenComplete(() {
+          // 动画期间列表可能被清空/重建，位置会失效 —— 夹一次防止越界。
+          if (mounted) _clampScrollNow();
+        });
+  }
+
   /// 把滚动位置夹回合法范围。
   ///
   /// ## 为什么需要它
@@ -2489,6 +2594,10 @@ class _ChatPageState extends State<ChatPage>
   /// 这场对话里有没有 AI 的回复（决定末尾要不要署名）。
   ///
   /// 静默回合不算：它们在聊天记录里根本不存在。
+  ///
+  /// 署名是**落款**，只能在整轮跑完之后出现 —— 还在流式输出时挂一句
+  /// 「注意验证内容准确性」，用户会以为这句话是回复的一部分，而且它
+  /// 会一直悬在还没写完的正文下面。
   static bool _hasAssistantReply(Conversation c) => c.messages.any(
     (ChatMessage m) =>
         !m.hidden && m.role == Role.assistant && m.content.trim().isNotEmpty,
@@ -2616,11 +2725,19 @@ class _ChatPageState extends State<ChatPage>
               ?.size
               .height ??
           0;
+      final double p =
+          (_planKey.currentContext?.findRenderObject() as RenderBox?)
+              ?.size
+              .height ??
+          0;
       // 只在真的变了才 setState，否则会无限重建
-      if ((h - _headerH).abs() > 0.5 || (c - _composerH).abs() > 0.5) {
+      if ((h - _headerH).abs() > 0.5 ||
+          (c - _composerH).abs() > 0.5 ||
+          (p - _planH).abs() > 0.5) {
         setState(() {
           _headerH = h;
           _composerH = c;
+          _planH = p;
         });
         // 输入区变矮会让列表的最大滚动距离跟着变小，而当前位置可能
         // 还停在旧值上（发消息后建议条/附件被清空时必现）—— 收一次。
@@ -2651,6 +2768,21 @@ class _ChatPageState extends State<ChatPage>
     }
 
     final Conversation conv = _conv;
+
+    // 计划树按会话存盘：首次打开某条对话（或应用重启后缓存为空）时
+    // 从磁盘补一次。放在 build 里排队而不是 initState，因为历史可能
+    // 还没读完、`_conv` 这时才稳定。
+    if (_planConvId != conv.id && _planLoadingFor != conv.id) {
+      _planLoadingFor = conv.id;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final Conversation current = _conv;
+        _planLoadingFor = null;
+        if (current.id != conv.id) return;
+        unawaited(_reloadPlan(current));
+      });
+    }
+
     _measureBars();
 
     return Scaffold(
@@ -2705,6 +2837,12 @@ class _ChatPageState extends State<ChatPage>
     final double panelExtra = panelHere
         ? _panelHeight.clamp(44.0, MediaQuery.sizeOf(context).height * 0.55) + 8
         : 0;
+    // 计划表只在**这一轮正在跑**时出现：它表达的是"现在做到哪了"，
+    // 跑完了就该把位置还给正文。高度由 [_planKey] 量出来（见 _measureBars），
+    // 消息列表按它加底部内边距，内容不会被盖住。
+    final bool planHere =
+        _running(conv.id) && _planConvId == conv.id && _planNodes.isNotEmpty;
+    final double planExtra = planHere ? _planH + 8 : 0;
     // 用 Stack 而不是 Column：列表要**铺满整个高度**并从两条栏下面穿过，
     // 否则玻璃模糊没有作用对象（详见 _measureBars 的注释）。
     return Stack(
@@ -2724,7 +2862,7 @@ class _ChatPageState extends State<ChatPage>
             child: _messageList(
               conv,
               topInset: _headerH + navInset,
-              bottomInset: _composerH + panelExtra,
+              bottomInset: _composerH + panelExtra + planExtra,
             ),
           ),
         ),
@@ -2739,17 +2877,75 @@ class _ChatPageState extends State<ChatPage>
         // 用户看到的就是：点一下/拖一下 → 面板闪一下 → 重新加载、
         // 刚落的子全没了。加上稳定 key 之后 Element 按 key 配对，
         // 条件孩子增删不会再动到面板的 AndroidView。
-        if (!_atBottom)
+        // ---- 回到底部 / 回到顶部 ----
+        //
+        // 一条消息都没有的时候不显示：空对话列表本来就没什么可滚的，
+        // 那个按钮只会占住屏幕右下角、暗示"下面有东西"。
+        //
+        // **按住往上拖 = 回顶部**：一排长对话里翻到底之后，手指要先
+        // 甩很多下才回得去。这个按钮本来就在拇指够得到的位置，
+        // 顺手给它加一个"反方向"的能力，不用再回到顶栏去按。
+        // ---- 回到底部 / 回到顶部 ----
+        //
+        // 一条消息都没有的时候不显示：空对话列表本来就没什么可滚的，
+        // 那个按钮只会占住屏幕右下角、暗示"下面有东西"。
+        //
+        // **按住往上拖 = 回顶部**：一排长对话里翻到底之后，手指要先
+        // 甩很多下才回得去。这个按钮本来就在拇指够得到的位置，
+        // 顺手给它加一个"反方向"的能力，不用再回到顶栏去按。
+        //
+        // ⚠️ **不要给这个按钮传 `tooltip`**。
+        // `GlassIconButton` 的 tooltip 走的是 Material `Tooltip`，
+        // 而它在手机上的默认触发方式就是**长按**（`TooltipTriggerMode.longPress`）。
+        // 挂着 tooltip 时长按会被 Tooltip 先吃掉，外面这层
+        // `GestureDetector` 的 `onLongPress*` 一次都收不到 ——
+        // 表现就是"长按上划完全没反应"。无障碍名改用 `Semantics` 给，
+        // 读屏照样念得出来。
+        if (!_atBottom && !conv.isBlank)
           Positioned(
             key: const ValueKey<String>('chat.jumpBottom'),
             right: 16,
             bottom: _composerH + panelExtra + 14,
-            child: GlassIconButton(
-              icon: Icons.arrow_downward_rounded,
-              tooltip: '回到底部',
-              size: 38,
-              iconSize: 19,
-              onTap: _scrollToEnd,
+            child: Semantics(
+              label: '回到底部，按住往上拖回顶部',
+              button: true,
+              child: GestureDetector(
+                onLongPressStart: (_) {
+                  // 长按即"准备换个方向"，给一声轻震作为确认。
+                  unawaited(HapticFeedback.selectionClick());
+                },
+                onLongPressMoveUpdate: (LongPressMoveUpdateDetails d) {
+                  // 往上拖超过 28 就执行一次，然后收手 —— 不跟手指连续滚，
+                  // 那会变成一条难控制的自定义滚动手势。
+                  if (!_jumpedTop && d.offsetFromOrigin.dy < -28) {
+                    _jumpedTop = true;
+                    _scrollToTop();
+                  }
+                },
+                onLongPressEnd: (_) => _jumpedTop = false,
+                child: GlassIconButton(
+                  icon: Icons.arrow_downward_rounded,
+                  size: 38,
+                  iconSize: 19,
+                  onTap: _scrollToEnd,
+                ),
+              ),
+            ),
+          ),
+        // ---- 底部计划表：运行时钉在输入框上方 ----
+        //
+        // 计划是**当前状态**，不是一条历史消息。塞进消息列表的话，
+        // 往上翻两屏就看不见了；而长任务最需要随时瞄一眼"做到哪了"。
+        // 所以用 Positioned 压在输入框上面，消息列表底部内边距为它让位。
+        if (planHere)
+          Positioned(
+            key: const ValueKey<String>('chat.planPanel'),
+            left: 10,
+            right: 10,
+            bottom: _composerH + panelExtra + 8,
+            child: KeyedSubtree(
+              key: _planKey,
+              child: PlanTreePanel(nodes: _planNodes),
             ),
           ),
         // ---- 顶部渐隐带 ----
@@ -2860,8 +3056,24 @@ class _ChatPageState extends State<ChatPage>
           bottom: 0,
           left: 0,
           right: 0,
-          child: Align(
-            alignment: Alignment.bottomCenter,
+          child: AnimatedAlign(
+            // ---- 空对话时**略低于屏幕中线**，有内容时贴底 ----
+            //
+            // 一条消息都没有时，输入框贴在屏幕最下面、上面是一大片空白，
+            // 视线得从屏顶找到屏底。往上提到中线附近之后，"该说什么"
+            // 和"在哪儿说"落在同一处，第一句话更容易开出来。
+            //
+            // 不是正中心（`Alignment.center`），而是**往下偏一点**：
+            // 正中间时输入框压着屏幕的视觉重心，上面一大片空白显得空；
+            // 0.18 让框落在"中线偏下"，上面留给问候、下面留出拇指的余量。
+            //
+            // 用 `AnimatedAlign` 而不是 `Align`：发出第一条消息时输入框
+            // 要从这里滑到底部，直接切会"跳一下"。
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeOutCubic,
+            alignment: _composerCentered
+                ? const Alignment(0, 0.18)
+                : Alignment.bottomCenter,
             // ---- 为什么要这层 RepaintBoundary ----
             //
             // 输入区里有一层真实的 BackdropFilter。流式输出时整页每 50ms
@@ -2992,7 +3204,6 @@ class _ChatPageState extends State<ChatPage>
                   MaterialPageRoute<void>(
                     builder: (BuildContext _) => DeepResearchPage(
                       settings: widget.settings,
-                      shizuku: widget.shizuku,
                       workDir: widget.workDir,
                       notes: widget.notes,
                       tasks: widget.tasks,
@@ -3283,7 +3494,6 @@ class _ChatPageState extends State<ChatPage>
     );
   }
 
-
   /// 顶栏「更多」：把模型、工具调用、权限三项收在一起。
   /// 右上角圆钮在屏幕上的矩形（按 ValueKey 找）。
   Rect? _rectOfHeaderMoreButton() {
@@ -3299,8 +3509,8 @@ class _ChatPageState extends State<ChatPage>
   void _showHeaderMore() {
     final AppSurface s = AppSurface.of(context);
     // 右上角菜单：锚定在右上角那颗圆钮旁边的**小卡片**（用户要求：
-    // 是卡片，不是底部半屏）。按设计稿只放「工具调用」和「权限」两项 ——
-    // 模型选择已经移到输入框旁边，这里不再重复。
+    // 是卡片，不是底部半屏）。模型选择已经移到输入框旁边，这里保留
+    // 工具调用、权限确认等状态。
     //
     // ⚠️ 卡片里**不要再套 SafeArea**。这个卡片挂在屏幕顶部，底部安全区
     // 那 24~48 的留白会原样变成卡片底部的一条空白 —— 两个选项看着
@@ -3525,47 +3735,6 @@ class _ChatPageState extends State<ChatPage>
     );
   }
 
-  // Shizuku 状态点暂时没有放回顶栏（方案 A 只留两个圆按钮）。
-  // 保留实现：它是判断"权限服务活着没有"的唯一可视信号，后面要么挪进
-  // 「更多」那个 sheet，要么放进抽屉 —— 删掉会丢掉这段逻辑。
-  // ignore: unused_element
-  Widget _shizukuDot() {
-    final ShizukuService z = widget.shizuku;
-    final bool ok = z.ready;
-
-    // 未授权只是「部分功能缺失」，用橙色而不是红色，
-    // 完全没装 Shizuku 才用中性灰 —— 都不该让用户以为应用坏了。
-    final Color color = ok
-        ? AppColors.success
-        : z.supported
-        ? AppColors.warning
-        : AppColors.neutral;
-
-    final String label = ok
-        ? '系统权限已就绪，可以执行命令、管理应用、读写文件'
-        : z.supported
-        ? '尚未授予系统操作权限 · 点击去授权。\n未授权时联网、识图、普通对话仍可正常使用'
-        : '未检测到 Shizuku。需要它才能执行系统命令等操作';
-
-    return StatusDot(
-      color: color,
-      glow: ok,
-      tooltip: label,
-      onTap: () {
-        if (!ok && z.supported) {
-          _requestShizuku();
-        } else {
-          _snack(label.replaceAll('\n', ' '));
-        }
-      },
-    );
-  }
-
-  Future<void> _requestShizuku() async {
-    await widget.shizuku.requestPermission();
-    if (mounted) _snack('已发起授权请求，请在系统弹窗中允许');
-  }
-
   Widget _messageList(
     Conversation conv, {
     double topInset = 0,
@@ -3577,173 +3746,163 @@ class _ChatPageState extends State<ChatPage>
       for (int i = 0; i < conv.messages.length; i++)
         if (!conv.messages[i].hidden) i,
     ];
+    // 复制按钮只挂在最后一条 AI 回复上（见 MessageView.isLastAssistant）。
+    int lastAssistantIndex = -1;
+    for (final int i in visible) {
+      if (conv.messages[i].role == Role.assistant) lastAssistantIndex = i;
+    }
     if (visible.isEmpty) {
+      // 输入框居中时，问候语由 `_composer()` 自己画在框上方 —— 这里再画
+      // 一份就会和输入框叠在一起（两者都在屏幕中线附近）。
+      if (_composerCentered) return const SizedBox.shrink();
       return Padding(
         padding: EdgeInsets.only(top: topInset, bottom: bottomInset),
         child: _emptyState(),
       );
     }
 
-    // 极简过程挂在哪里：**最后一条用户气泡之后**。
-    // 这一格正好是「用户气泡下边、AI 原文顶部左边」，而且滚动时它跟着
-    // 这次任务走，不会像输入框上方的浮条那样挡住正文。
-    int lastUserIndex = -1;
-    for (final int i in visible) {
-      if (conv.messages[i].role == Role.user) lastUserIndex = i;
-    }
-
-    // ---- 全部工具调用：整场对话合计成一行（见 ToolFoldAllRow）----
+    // ---- 把连续的「过程轮」收成一个列表项 ----
     //
-    // 汇总行的位置取**第一次用工具的那条回复之后**：那一行代表的就是
-    // "从这里开始它一直在调工具"，和原来"每条回复下面的工具行"读起来
-    // 是同一条线，只是被压成了一行。
-    final bool collapse = widget.settings.collapseToolSteps;
-    // 极简过程：整场对话的工具汇总行也不出现 —— 那一行和"只留结论"
-    // 是互相矛盾的（它本身就是一条会动的过程信息）。
-    final bool minimal = widget.settings.minimalProgress;
-    final List<ToolInvocation> allTools = <ToolInvocation>[
-      for (final int i in visible) ...conv.messages[i].tools,
-    ];
-    final bool showFoldRow = collapse && !minimal && allTools.isNotEmpty;
-    int firstToolIdx = -1;
-    if (showFoldRow) {
-      for (final int i in visible) {
-        if (conv.messages[i].tools.isNotEmpty) {
-          firstToolIdx = i;
-          break;
-        }
-      }
-    }
-    // 合上时每条消息都不画工具过程 —— 它们已经在上面那一行里了。
-    final bool hideMsgTools = showFoldRow && _toolsFolded;
+    // AgentRunner 每轮带工具的请求都会追加一条独立的 assistant 消息：
+    //   「我先查一下…」→ 工具 →「再换个方式…」→ 工具 → … → 最终答复
+    // 前几条是**过程**：它们身上的思考、中间说的话、工具调用全平铺出来，
+    // 一轮长任务就是好几屏过程话，结论被挤到最底下。这里把它们并成
+    // 一项，由 ProcessGroup 画成一行可展开的摘要；最后那条不带工具的
+    // assistant 消息才是答复，仍然单独渲染在外面。
+    //
+    // 纯问答（一条 assistant、没有工具）完全不进这个分支，布局照旧。
+    final List<_MessageItem> items = <_MessageItem>[];
+    final List<int> pendingIdx = <int>[];
+    final List<ToolInvocation> pendingTools = <ToolInvocation>[];
+    List<ToolInvocation> flushedTools = <ToolInvocation>[];
 
-    final Widget foldRow = ToolFoldAllRow(
-      total: allTools.length,
-      failed: allTools
-          .where(
-            (ToolInvocation t) =>
-                t.status == InvocationStatus.failed ||
-                t.status == InvocationStatus.rejected,
-          )
-          .length,
-      running: allTools
-          .where((ToolInvocation t) => t.status == InvocationStatus.running)
-          .length,
-      folded: _toolsFolded,
-      onTap: () => setState(() => _toolsFolded = !_toolsFolded),
-    );
+    void flushProcess() {
+      if (pendingIdx.isEmpty) return;
+      items.add(_MessageItem(indices: List<int>.of(pendingIdx), process: true));
+      flushedTools = List<ToolInvocation>.of(pendingTools);
+      pendingIdx.clear();
+      pendingTools.clear();
+    }
+
+    for (final int index in visible) {
+      final ChatMessage m = conv.messages[index];
+      // 带工具调用 = 模型说完这句还要继续做事；正文为空 = 纯思考/占位轮。
+      // 出错的回复**必须留在外面**：它的正文常常是空的，但底下那张
+      // 红边错误卡片是用户唯一能看到的失败原因，不能被收进过程条。
+      final bool hasError = (m.error ?? '').trim().isNotEmpty;
+      final bool isProcess =
+          m.role == Role.assistant &&
+          !hasError &&
+          (m.tools.isNotEmpty || m.content.trim().isEmpty);
+      if (isProcess) {
+        pendingIdx.add(index);
+        pendingTools.addAll(m.tools);
+        continue;
+      }
+      final bool hadProcess = pendingIdx.isNotEmpty;
+      flushProcess();
+      final bool finalAnswer =
+          hadProcess && m.role == Role.assistant && !hasError;
+      if (finalAnswer) {
+        // 最后一轮也可能先想再答，那段思维链同样收进「详情」。
+        items.last.reasoningFrom = index;
+      }
+      items.add(
+        _MessageItem(
+          indices: <int>[index],
+          process: false,
+          processTools: finalAnswer ? flushedTools : const <ToolInvocation>[],
+          suppressThinking: finalAnswer,
+        ),
+      );
+      if (!finalAnswer) flushedTools = <ToolInvocation>[];
+    }
+    flushProcess();
 
     final Widget list = ListView.builder(
       controller: _scroll,
-      // 上下内边距 = 两条栏的实测高度。列表本身铺满整个屏幕，
-      // 靠 padding 让内容从栏下方开始 —— 这样滚动时消息会**从栏下面穿过**。
-      // 首次布局时测量值还是 0，会闪一下，但下一帧就修正了。
-      // 左右 20：正文要留出边距，16 在手机上偏窄 ——
-      // 一行 20 多个汉字贴着屏边，读起来像"填满了"。
-      // 上下多给 4/6：最后一条消息离输入框远一点，视觉上不再"被吸进去"。
       padding: EdgeInsets.fromLTRB(20, topInset + 8, 20, bottomInset + 20),
-      // 最后多一格：整场对话末尾的署名（见 AiSignature）。
-      // 只在**已经有 AI 回复**时给那一格 —— 一条 AI 回复都没有的新对话
-      // 没有"AI 生成的内容"可署名。
-      itemCount: visible.length + (_hasAssistantReply(conv) ? 1 : 0),
+      itemCount:
+          items.length +
+          (_hasAssistantReply(conv) && !_running(conv.id) ? 1 : 0),
       itemBuilder: (BuildContext context, int i) {
-        if (i == visible.length) return const AiSignature();
-        final int index = visible[i];
-        final ChatMessage m = conv.messages[index];
+        if (i == items.length) return const AiSignature();
+        final _MessageItem item = items[i];
+        final int index = item.first;
         final AppSurface s = AppSurface.of(context);
 
-        // ---- 内容没变的消息：直接复用上一次的 widget 实例 ----
-        //
-        // 这是"带公式/长文本就卡"的真正解法。
-        //
-        // 页面是整页 `setState`：流式输出时每 50~160ms 重建一次整棵树。
-        // 就算 Markdown 解析有缓存、公式 Widget 实例也能复用，**外层的
-        // Column 仍然是新建的** —— 子树会被重新挂载，于是每个公式都要
-        // 重新布局一遍（TeX 布局是最贵的一步），屏幕上十来个公式就是
-        // 肉眼可见的卡顿。
-        //
-        // Flutter 的 `updateChild` 里有一条短路：如果新旧 widget
-        // `identical`，整棵子树**跳过更新**。所以只要把"输入没变"的那条
-        // 消息的 widget 实例留着复用，它下面的公式、代码块、图片全都
-        // 不会重排。
-        //
-        // 签名必须覆盖所有影响渲染的输入；拿不准就宁可多算一次重建。
+        // 过程项的签名要覆盖组内**每一条**消息：流式输出、工具状态
+        // 变化都会改到其中一条，漏了就会拿到缓存里的旧过程条。
+        String sigFor(int idx) {
+          final ChatMessage m = conv.messages[idx];
+          return <String>[
+            m.id,
+            '${m.content.length}:${m.content.hashCode}',
+            '${m.reasoning.length}:${m.reasoning.hashCode}',
+            '${m.pending}',
+            m.error ?? '',
+            '${m.attachments.length}',
+            '${m.tools.length}',
+            m.tools.isEmpty ? '' : m.tools.last.status.name,
+            '${m.marks.length}',
+            m.quote?.text ?? '',
+            m.varRefs.join(','),
+            '${m.hidden}',
+            '${s.isDark}|${AppFonts.scale}',
+            '${_enteringBubbles.contains(m.id)}',
+            '${idx == lastAssistantIndex}',
+          ].join('|');
+        }
+
         final String sig = <String>[
-          m.id,
-          '${m.content.length}:${m.content.hashCode}',
-          '${m.reasoning.length}:${m.reasoning.hashCode}',
-          '${m.pending}',
-          m.error ?? '',
-          '${m.attachments.length}',
-          '${m.tools.length}',
-          m.tools.isEmpty ? '' : m.tools.last.status.name,
-          '${m.marks.length}',
-          m.quote?.text ?? '',
-          // 变量库引用：有它时气泡画成"已存入变量库"卡片而不是普通文本，
-          // 漏了在签名里就会出现"同一条消息一会儿是卡片一会儿是长文"。
-          m.varRefs.join(','),
-          '${m.hidden}',
-          '$collapse|$minimal|$hideMsgTools|${s.isDark}|${AppFonts.scale}',
-          '${_enteringBubbles.contains(m.id)}',
-        ].join('|');
+          for (final int idx in item.indices) sigFor(idx),
+          if (item.reasoningFrom != null)
+            'final:${sigFor(item.reasoningFrom!)}',
+        ].join('#');
 
         final String cacheKey = '$index#$sig';
         final Widget? cached = _msgCache[cacheKey];
-        if (cached != null) {
-          final AppSurface s2 = AppSurface.of(context);
-          final bool showProcessHere = minimal && index == lastUserIndex;
-          if (!showProcessHere && index != firstToolIdx) return cached;
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              cached,
-              if (showProcessHere) _minimalProcessRow(s2),
-              if (index == firstToolIdx) foldRow,
-            ],
-          );
-        }
+        if (cached != null) return cached;
 
+        // 过程组只用首条消息的 GlobalKey。组内其它索引仍然走
+        // `_jumpToQuote` 的粗滚兜底 —— 不能把多个索引都指到同一个
+        // GlobalKey 上：消息增删后分组重算，那个 key 有可能同时被
+        // 两个列表项挂住，Flutter 会直接断言失败。
+        final GlobalKey itemKey = _keyFor(index);
+
+        final ChatMessage m = conv.messages[index];
         final Widget view = KeyedSubtree(
-          // 引用跳转靠这个 key 找到"那条消息现在在屏幕上的哪儿"
-          // （见 _jumpToQuote：用 ensureVisible 而不是估算偏移量）。
-          key: _keyFor(index),
-          child: MessageView(
-            message: m,
-            onOpenLink: _openLink,
-            // 长按选中 → 引用 / 标记 / 取消标记（两种消息都支持）
-            onQuote: _quoteFrom,
-            onMark: _markOn,
-            onUnmark: _unmarkOn,
-            // 长按消息 → 「重新生成 / 修改」（见 MarkdownView 的选区菜单）
-            onRegenerate: _regenerateFrom,
-            onEdit: _editFrom,
-            onDelete: _deleteMessage,
-            animateIn: _enteringBubbles.contains(m.id),
-            onBubbleAnimated: () => _bubbleEntered(m.id),
-            // 点消息上的引用条 → 跳回原文
-            onTapQuote: (MessageQuote q) => _jumpToQuote(conv, q),
-            // 「性能 → 工具步骤过程」：收成一行还是逐步平铺
-            collapseToolSteps: collapse,
-            // 「性能 → 极简过程」：思考和工具合成一句状态，不给展开入口
-            minimalProgress: minimal,
-            // 整场对话的工具调用已经汇总成一行时，这里不再画第二遍
-            showToolSteps: !hideMsgTools,
-          ),
+          key: itemKey,
+          child: item.process
+              ? ProcessGroup(
+                  turns: <ChatMessage>[
+                    for (final int idx in item.indices) conv.messages[idx],
+                  ],
+                  finalTurn: item.reasoningFrom == null
+                      ? null
+                      : conv.messages[item.reasoningFrom!],
+                  onMoreHistory: _showToolCallsSheet,
+                )
+              : MessageView(
+                  message: m,
+                  onOpenLink: _openLink,
+                  onQuote: _quoteFrom,
+                  onMark: _markOn,
+                  onUnmark: _unmarkOn,
+                  onRegenerate: _regenerateFrom,
+                  onEdit: _editFrom,
+                  onDelete: _deleteMessage,
+                  animateIn: _enteringBubbles.contains(m.id),
+                  onBubbleAnimated: () => _bubbleEntered(m.id),
+                  onTapQuote: (MessageQuote q) => _jumpToQuote(conv, q),
+                  isLastAssistant: index == lastAssistantIndex,
+                  processTools: item.processTools,
+                  suppressThinking: item.suppressThinking,
+                ),
         );
-        // 缓存实例（上限 200 条：一屏几十条，够覆盖来回翻动）。
         _msgCache[cacheKey] = view;
         if (_msgCache.length > 200) _msgCache.clear();
-
-        final bool showProcessHere = minimal && index == lastUserIndex;
-        if (!showProcessHere && index != firstToolIdx) return view;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            view,
-            if (showProcessHere) _minimalProcessRow(s),
-            if (index == firstToolIdx) foldRow,
-          ],
-        );
+        return view;
       },
     );
 
@@ -3771,30 +3930,12 @@ class _ChatPageState extends State<ChatPage>
     }
   }
 
-  /// 空白对话页上**只有一句问候**。
+  /// 空白对话页：**做点什么** 引导屏。
   ///
-  /// ## 为什么把"可以让我做什么"那几张卡片删了
-  ///
-  /// 那四张卡片看起来是在教用户怎么用，实际上每次开一条新对话都要先
-  /// 跨过一屏**示例话术**，而开新对话的人几乎总是已经知道自己要说什么。
-  /// 示例只在"第一次打开、完全不知道能干什么"那一次有价值，之后每次
-  /// 都是一层要划过去的噪音（用户的原话：只留早上好/中午好/晚上好）。
-  ///
-  /// 权限提示也不再挂在这里：头部那个状态点就是它的入口 —— 橙色 =
-  /// 没授权，点一下直接请求。它比一张卡片更近，也不需要占正文的地方。
+  /// 只在非居中态（有消息被隐藏但列表为空）时出现；通常情况下
+  /// 空对话走 [_composerCentered] 路径，引导内容在 [_homeActionButtons] 里。
   Widget _emptyState() {
     final AppSurface s = AppSurface.of(context);
-    // ---- 空态**必须能滚** ----
-    //
-    // 这段问候语本身只有两行，但它坐在"整块 body 减掉输入区"的那块空间里。
-    // 键盘一弹、输入框又长到五行，剩下的高度可以只有 38 —— 而这段内容是
-    // 82，`Center` 会照旧按自然高度排版，于是 RenderFlex 直接溢出 44，
-    // 屏幕上出现黄黑斜纹。这不是理论值，是量出来的。
-    //
-    // `SingleChildScrollView` + `ConstrainedBox(minHeight: 视口)` 是
-    // "居中，但装不下时能滚"的标准写法：空间够的时候 `Center` 生效、
-    // 位置和以前一模一样；空间不够的时候它退化成一块可滚区域，
-    // 问候语随正文一起被推上去，而不是把布局撑破。
     return LayoutBuilder(
       builder: (BuildContext ctx, BoxConstraints c) {
         return SingleChildScrollView(
@@ -3802,43 +3943,77 @@ class _ChatPageState extends State<ChatPage>
             constraints: BoxConstraints(minHeight: c.maxHeight),
             child: Center(
               child: Padding(
-                // 左右 32、底部再往上抬 48：空状态不是上边距撑着的一行字，
-                // 而是整屏的中心。手机上手自然停在屏幕中部，句子也该在那里。
                 padding: const EdgeInsets.fromLTRB(32, 0, 32, 48),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(
-                      Greeting.line(),
-                      textAlign: TextAlign.center,
-                      style: AppFonts.body(
-                        size: 30,
-                        weight: FontWeight.w600,
-                        color: s.text,
-                        height: 1.3,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    // 一句"上哪儿去"的引子。光有问候语那一屏太空了
-                    // （用户的原话），而这里又不该再摆一屏示例卡片 ——
-                    // 一行小字把"接下来该你说话"说清楚就够。
-                    Text(
-                      '直接说你要做什么',
-                      textAlign: TextAlign.center,
-                      style: AppFonts.body(
-                        size: 15,
-                        color: s.muted,
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
-                ),
+                child: _homeActionButtons(s),
               ),
             ),
           ),
         );
       },
+    );
+  }
+
+  /// 首页空态的"做点什么"引导区：标题 + Tool Artifact + Start with workspace。
+  ///
+  /// 在两处复用：
+  /// 首页空态：「做点什么」标题 + 推荐列表边框块。
+  Widget _homeActionButtons(AppSurface s) {
+    // 推荐内容：优先用 AI 建议，兜底用固定的几条。
+    final List<String> fallback = <String>[
+      '帮我把今天要做的事整理成清单',
+      '明天要出门，看看天气怎么样',
+      '帮我写一条客气的回复',
+    ];
+    final List<String> items = _suggestions.isNotEmpty
+        ? (_suggestions.length > 3 ? _suggestions.sublist(0, 3) : _suggestions)
+        : fallback;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            '做点什么',
+            style: AppFonts.body(
+              size: 28,
+              color: s.text,
+              height: 1.2,
+              letterSpacing: -0.3,
+            ),
+          ),
+          const SizedBox(height: 20),
+          if (_suggesting && _suggestions.isEmpty)
+            Text(
+              '推荐中…',
+              style: AppFonts.body(size: 14, color: s.muted, height: 1.5),
+            )
+          else
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                for (final String item in items)
+                  InkWell(
+                    onTap: () => _applySuggestion(item),
+                    borderRadius: BorderRadius.circular(6),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        item,
+                        style: AppFonts.body(
+                          size: 15,
+                          color: s.text,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+        ],
+      ),
     );
   }
 
@@ -3856,7 +4031,7 @@ class _ChatPageState extends State<ChatPage>
   ///
   /// 它们原来在玻璃**上面**、背后是透明的消息列表 —— 那正是"字叠字"的来源
   /// （内容滚到状态行背后时两条字叠在一起）。现在整块输入区（正在抓网页 /
-  /// Termux running / 待发附件 / 引用条 / 输入框 / 工具条）都在同一块玻璃上，
+  /// Alpine running / 待发附件 / 引用条 / 输入框 / 工具条）都在同一块玻璃上，
   /// 只有一种表面、一种边框。
   ///
   /// 边框仍然用 `ShapeDecoration` + side 画在**最上层**：先模糊、再描边，
@@ -4045,6 +4220,18 @@ class _ChatPageState extends State<ChatPage>
               if (_pendingCwt.isNotEmpty) _cwtStrip(s),
               if (_suggestions.isNotEmpty || _suggesting) _suggestBar(s),
               if (_pending.isNotEmpty) _pendingStrip(s),
+              // ---- 居中空态的提示语 ----
+              //
+              // 只保留一行"直接说你要做什么"，没有多余的问候语。
+              // 位置固定在输入框上方，跟着输入框一起滑。
+              //
+              // 底部留了宠物高度 + 22：宠物顶在框沿上，不预留的话
+              // 它会压在这行字上。
+              if (_composerCentered)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 24),
+                  child: _homeActionButtons(s),
+                ),
               // 输入框：**固定展开**，不再有"缩成一颗圆"的形态。
               //
               // 这里原来是一整段形变动画（宽/高/圆角共用 `_morph`，下滑跟手
@@ -4056,16 +4243,28 @@ class _ChatPageState extends State<ChatPage>
                 child: LayoutBuilder(
                   builder: (BuildContext ctx, BoxConstraints c) {
                     final double avail = c.maxWidth;
-                    return SizedBox(
-                      width: avail,
-                      child: _composerGlass(
-                        s,
-                        radius: AppRadius.input,
-                        child: SizedBox(
-                          width: avail,
-                          child: _composerBody(s),
-                        ),
-                      ),
+                    // ---- 宠物坐在框沿右上角 ----
+                    //
+                    // ## 为什么是"顶部预留一条带"，而不是负偏移顶出去
+                    //
+                    // 最初写的是 `Positioned(top: -身高 + 6)` + `Clip.none`，
+                    // 视觉上对，但**点不动**：`Clip.none` 只影响绘制，
+                    // 不扩大命中范围 —— 手指落在 Stack 上边界之外，
+                    // 事件根本到不了宠物身上。测试里点它，输入框纹丝不动，
+                    // 就是这么发现的。
+                    //
+                    // 现在改成 Stack 自己高出一条"宠物带"：玻璃用 `top`
+                    // 内边距往下让出这一条，宠物坐在带子里。因为整块是
+                    // **底部对齐**的（贴底或居中），多出来的高度只往上长，
+                    // 输入框本身位置一点不变。命中范围也就正常了。
+                    //
+                    // 为什么挂在 `_composerGlass` 这一层而不是更外面：
+                    // 这样它自然跟着玻璃一起动（键盘升降、居中/贴底的滑动
+                    // 都不会掉队），右边距也以框为基准，不随屏宽漂。
+                    return _composerGlass(
+                      s,
+                      radius: AppRadius.input,
+                      child: SizedBox(width: avail, child: _composerBody(s)),
                     );
                   },
                 ),
@@ -4333,7 +4532,7 @@ class _ChatPageState extends State<ChatPage>
         <({Mention mention, String title, String desc})>[];
 
     if (kind != MentionKind.plugin) {
-      for (final FolderTool t in FolderToolStore.instance.enabled) {
+      for (final Skill t in SkillStore.instance.enabled) {
         // 搜索也覆盖备注和说明 —— 用户很可能只记得"那个能合并 PDF 的"，
         // 而不记得文件夹叫什么。只按 id 和标题匹配会让他以为没这个工具。
         if (q.isNotEmpty &&
@@ -4357,7 +4556,7 @@ class _ChatPageState extends State<ChatPage>
           // 看起来像没加载出来。
           desc: t.noteLine.isNotEmpty
               ? t.noteLine
-              : (t.description.isNotEmpty ? t.description : '工具 · ${t.id}'),
+              : (t.description.isNotEmpty ? t.description : '技能 · ${t.id}'),
         ));
       }
     }
@@ -4385,8 +4584,8 @@ class _ChatPageState extends State<ChatPage>
         child: Padding(
           padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
           child: Text(
-            '没有匹配的工具或插件。\n'
-            '工具在「设置 → 工具」里建，插件在「设置 → 插件」里建。',
+            '没有匹配的技能或插件。\n'
+            '技能在「设置 → 技能」里建，插件在「设置 → 插件」里建。',
             style: AppFonts.body(size: 11.5, color: s.muted, height: 1.5),
           ),
         ),
@@ -4436,12 +4635,12 @@ class _ChatPageState extends State<ChatPage>
                     // 查不到的唯一可能是"这个工具刚被删、面板还没重建"，
                     // 那时给字形比给空白强。
                     //
-                    // 尺寸统一走 `kToolIconSize`：同一个工具在列表页和
+                    // 尺寸统一走 `kSkillIconSize`：同一个工具在列表页和
                     // `@` 面板里长得不一样，会让人以为是两个不同的东西。
                     if (it.mention.kind == MentionKind.tool &&
-                        FolderToolStore.instance.byId(it.mention.id) != null)
-                      ToolIcon(
-                        tool: FolderToolStore.instance.byId(it.mention.id)!,
+                        SkillStore.instance.byId(it.mention.id) != null)
+                      SkillIcon(
+                        tool: SkillStore.instance.byId(it.mention.id)!,
                         color: AppColors.accent,
                       )
                     else
@@ -4449,7 +4648,7 @@ class _ChatPageState extends State<ChatPage>
                         it.mention.kind == MentionKind.tool
                             ? Icons.folder_outlined
                             : Icons.extension_outlined,
-                        size: kToolIconSize,
+                        size: kSkillIconSize,
                         color: AppColors.accent,
                       ),
                     const SizedBox(width: 9),
@@ -4596,7 +4795,7 @@ class _ChatPageState extends State<ChatPage>
         // 一半的名字、一边挑，盖上去就什么都看不见了。
         // 「正在抓取网页内容…」这一行随「从网上」入口一起删除 ——
         // 面板里已经没有抓取入口，这个状态永远不会为真。
-        // ---- 「浏览器正在使用 / Termux Running」这一行**不再显示** ----
+        // ---- 「浏览器正在使用 / Alpine Running」这一行**不再显示** ----
         //
         // 用户要的：输入框上方只留输入框本身。
         //
@@ -4721,9 +4920,7 @@ class _ChatPageState extends State<ChatPage>
           // 字形也收到 20（40 的盒子里放 21 时，图标显得比文字粗一档）。
           width: 34,
           height: 34,
-          child: Center(
-            child: Icon(icon, size: 20, color: color ?? s.muted),
-          ),
+          child: Center(child: Icon(icon, size: 20, color: color ?? s.muted)),
         ),
       ),
     );
@@ -4881,18 +5078,16 @@ class _ChatPageState extends State<ChatPage>
           height: _circleInRow,
           child: Center(
             child: Container(
-              // 18 → 14：再小一档。
+              // 14 → 11：再小一档，改为**空心**描边方块。
               //
-              // 用的是**文字色**（浅色下 `#1C1C1E`，深色下 `#EDEDED`），
-              // 不是强调蓝。用户明确要"黑色的、小一点的"：停止是一个
-              // **中断**动作，不该和"选中/进行中"共用那抹蓝。
-              // 深色主题下不能真给黑（黑块在深灰底上看不见），
-              // 所以跟的是 `s.text` —— 两套主题里都是"最实的那个墨色"。
-              width: 14,
-              height: 14,
+              // 实心方块和输入框里的文字、发送图标在视觉上争夺注意力；
+              // 空心只保留"停止"的形状语义，安静得多。
+              // 圆角从 4 → 3，配合缩小后的比例。
+              width: 11,
+              height: 11,
               decoration: BoxDecoration(
-                color: s.text,
-                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: s.text, width: 1.5),
+                borderRadius: BorderRadius.circular(3),
               ),
             ),
           ),
@@ -4960,7 +5155,8 @@ class _ChatPageState extends State<ChatPage>
   ///
   /// 字号 15 × 行高 1.5 × 全局行距 1.14 —— 三个因子都来自主题，
   /// 不是写死的数：用户把字号调到 1.4×，这里跟着变。
-  static double get _inputLineBox => 15 * 1.5 * AppFonts.lineHeight * AppFonts.scale;
+  static double get _inputLineBox =>
+      15 * 1.5 * AppFonts.lineHeight * AppFonts.scale;
 
   /// 输入框上下留白：**按行盒算**，让自然高度正好等于 [_inputRowHeight]。
   ///
@@ -5933,7 +6129,7 @@ class _ChatPageState extends State<ChatPage>
   // 反而把多出来的行距全堆在字上面，看着就是"文字比图标高"。
   // 所以两个常量一起删掉：Row 默认居中，两者自然在同一条中线上。
 
-  // ---- 「浏览器正在使用 / Termux Running」那一行 2026-10-16 撤掉了 ----
+  // ---- 「浏览器正在使用 / Alpine Running」那一行 2026-10-16 撤掉了 ----
   //
   // 它原来是"浏览器一行、终端一行"，后来合成一行贴在输入框上方。
   // 现在整行都不画了：那一块位置属于输入框，而"谁在忙"这件事由收起态
@@ -6640,8 +6836,7 @@ class _CrescentPainter extends CustomPainter {
     // 0.34 之后四周留出约 2.5px，三档图标在同一行上的"视觉重量"才对得上。
     final double r = s * 0.34;
 
-    final Path disc = Path()
-      ..addOval(Rect.fromCircle(center: c, radius: r));
+    final Path disc = Path()..addOval(Rect.fromCircle(center: c, radius: r));
     // 挖掉的圆：中心偏右（0.55r）偏上（-0.30r），半径 0.86r。
     //
     // 这几个比例决定"月牙有多粗"：挖的圆越靠右、越小，月牙越宽；

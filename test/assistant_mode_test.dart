@@ -6,7 +6,7 @@
 import 'dart:io';
 
 import 'package:dsh_agent/ai/agent.dart';
-import 'package:dsh_agent/core/folder_tool.dart';
+import 'package:dsh_agent/core/skill.dart';
 import 'package:dsh_agent/core/learning.dart';
 import 'package:dsh_agent/core/memory.dart';
 import 'package:dsh_agent/core/rules.dart';
@@ -20,7 +20,7 @@ void main() {
     await MemoryStore.configure(File('${tmp.path}/memory.json'));
     await RuleStore.configure(File('${tmp.path}/rules.json'));
     await LearningStore.configure(File('${tmp.path}/learning.json'));
-    await FolderToolStore.instance.configure(Directory('${tmp.path}/tools'));
+    await SkillStore.instance.configure(Directory('${tmp.path}/tools'));
   });
 
   tearDownAll(() async {
@@ -31,7 +31,6 @@ void main() {
 
   test('学生模式：要求先解释、分步、用图', () {
     final String p = buildSystemPrompt(
-      shizukuReady: true,
       assistantMode: 'student',
     );
     expect(p, contains('学生模式'));
@@ -41,7 +40,6 @@ void main() {
 
   test('程序员模式：代码优先、直接动手', () {
     final String p = buildSystemPrompt(
-      shizukuReady: true,
       assistantMode: 'programmer',
     );
     expect(p, contains('程序员模式'));
@@ -51,11 +49,9 @@ void main() {
 
   test('日常模式与未知值都是简洁优先（未知回退到日常）', () {
     final String daily = buildSystemPrompt(
-      shizukuReady: true,
       assistantMode: 'daily',
     );
     final String unknown = buildSystemPrompt(
-      shizukuReady: true,
       assistantMode: 'whatever',
     );
     expect(daily, contains('日常模式'));
@@ -64,9 +60,9 @@ void main() {
 
   test('三种模式产出的提示词互不相同', () {
     final Set<String> seen = <String>{
-      buildSystemPrompt(shizukuReady: true, assistantMode: 'student'),
-      buildSystemPrompt(shizukuReady: true, assistantMode: 'daily'),
-      buildSystemPrompt(shizukuReady: true, assistantMode: 'programmer'),
+      buildSystemPrompt(assistantMode: 'student'),
+      buildSystemPrompt(assistantMode: 'daily'),
+      buildSystemPrompt(assistantMode: 'programmer'),
     };
     expect(seen.length, 3);
   });
@@ -74,7 +70,6 @@ void main() {
   test('文件硬规则始终在提示词里（不随模式消失）', () {
     for (final String mode in <String>['student', 'daily', 'programmer']) {
       final String p = buildSystemPrompt(
-        shizukuReady: true,
         assistantMode: mode,
       );
       expect(p, contains('改文件之前，必须先读过它'), reason: mode);

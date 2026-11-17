@@ -8,17 +8,12 @@
     <!-- 语音输入：输入框旁边的麦克风（系统 SpeechRecognizer 需要它） -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
 
-    <!-- Termux 连接：声明后才能用 com.termux.RUN_COMMAND 请 Termux 代跑命令。
-         光有这行不够，用户还必须在 Termux 里打开 allow-external-apps。 -->
-    <uses-permission android:name="com.termux.permission.RUN_COMMAND"/>
+    <!-- External Artifact 发现现在用 queryBroadcastReceivers + <queries> 实现，
+         不再需要 QUERY_ALL_PACKAGES。保留注释说明历史，方便恢复。 -->
+    <!-- <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission"/> -->
 
-    <!-- 应用管理需要枚举已安装应用；这是自用工具，故申请该权限 -->
-    <uses-permission
-        android:name="android.permission.QUERY_ALL_PACKAGES"
-        tools:ignore="QueryAllPackagesPermission"/>
-
-    <!-- 文件读写。Android 10 起分区存储生效，写外部存储的旧权限仅对 API<=29 有意义；
-         更高的版本走 Shizuku(shell) 落盘，不受分区存储限制。 -->
+    <!-- 文件读写。Android 10 起分区存储生效，写外部存储的旧权限仅对 API<=29 有意义。 -->
     <!-- 工作空间可以切到下载 / Documents 等公共目录。Android 11+ 的
          分区存储会把这些写入判成 EPERM（Operation not permitted），
          必须申请「所有文件访问」并在系统设置里由用户手动授予。
@@ -47,12 +42,6 @@
          打盹模式下 CPU 会挂起、网络会断。跑长任务时这两者互补，缺一不可。
          这是特殊权限，需要在设置里单独申请（会跳到系统弹窗）。 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
-
-    <!-- 从应用内安装独立沙箱插件 APK。Android 8+ 需要这个特殊权限；
-         首次点安装时系统会跳到"安装未知应用"开关。 -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
-    <!-- 独立沙箱插件提供的签名级命令通道。 -->
-    <uses-permission android:name="com.dsh.privtasker.sandbox.permission.SANDBOX"/>
 
     <!-- 系统级悬浮窗确认框。
          工具很容易把别的应用切到前台（am start、拉起设置页等），
@@ -120,17 +109,6 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- Shizuku 的 ContentProvider：负责把 binder 的权限授予本应用。
-             authorities 必须用它约定的 "${applicationId}.shizuku" 形式。
-             android:permission 约束只有系统能访问该 provider。 -->
-        <provider
-            android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="${applicationId}.shizuku"
-            android:enabled="true"
-            android:exported="true"
-            android:multiprocess="false"
-            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
-
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
@@ -144,21 +122,17 @@
             android:foregroundServiceType="dataSync"
             android:stopWithTask="false"/>
 
-        <!-- 手机控制通道：读控件树、语义点击、连续手势。
-             系统绑定这个服务前会校验 BIND_ACCESSIBILITY_SERVICE 权限，
-             用户必须手动在「设置 → 无障碍」里打开。 -->
         <service
-            android:name=".AgentAccessibilityService"
-            android:exported="true"
-            android:label="@string/accessibility_service_label"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService"/>
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility_service_config"/>
-        </service>
+            android:name=".garmin.GarminRelayService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="false"/>
+
+        <!-- External Artifact 消息接收端：第三方 app 通过此 provider 主动唤醒 AI -->
+        <provider
+            android:name=".ArtifactInboxProvider"
+            android:authorities="com.agt.tk.hwl.artifact_inbox"
+            android:exported="true" />
 
     </application>
 
@@ -167,15 +141,17 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
-        <!-- Android 11+ 的包可见性：不声明的话 getPackageInfo("com.termux")
-             会直接抛 NameNotFoundException，我们就"看不到"Termux 装没装。 -->
-        <package android:name="com.termux"/>
-        <package android:name="com.dsh.privtasker.sandbox"/>
-        <package android:name="com.android.virtualization.terminal"/>
         <!-- 语音输入：Android 11+ 需要显式声明才能看到系统识别服务，
              否则 SpeechRecognizer.isRecognitionAvailable 会被判成 false -->
         <intent>
             <action android:name="android.speech.RecognitionService"/>
+        </intent>
+        <!-- External Artifact 发现机制：Android 11+ 合规方案。
+             第三方 app 在 BroadcastReceiver 上声明这个 Action，
+             声明了此 intent 后无需 QUERY_ALL_PACKAGES 即可用
+             queryBroadcastReceivers 扫到它们。 -->
+        <intent>
+            <action android:name="com.agt.tk.hwl.ARTIFACT_PROVIDER"/>
         </intent>
     </queries>
 </manifest>

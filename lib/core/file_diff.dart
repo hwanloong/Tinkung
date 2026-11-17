@@ -327,8 +327,8 @@ class FileDiff {
 
 /// 在工具执行前给文件拍一张“文本快照”，执行后算出差异。
 ///
-/// 只处理**可能写文件**的工具（file_op 的 write/append、python、termux、
-/// run_shell），而且只读文本：图片/Office 二进制没有“第几行”的概念，
+/// 只处理**可能写文件**的工具（file_op 的 write/append、python、linux），
+/// 而且只读文本：图片/Office 二进制没有“第几行”的概念，
 /// 硬算只会得到一堆乱码。
 class FileChangeTracker {
   const FileChangeTracker._();
@@ -342,8 +342,7 @@ class FileChangeTracker {
       case 'python':
         final String code = args['code']?.toString() ?? '';
         return _pythonMayWrite.hasMatch(code);
-      case 'termux':
-      case 'run_shell':
+      case 'linux':
       case 'sheller':
         return true;
       case 'writer':

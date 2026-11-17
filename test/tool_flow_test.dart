@@ -94,7 +94,6 @@ void main() {
 
       final List<Map<String, dynamic>> msgs = await buildApiMessages(
         conv,
-        shizukuReady: false,
       );
 
       final List<Map<String, dynamic>> toolMsgs = msgs
@@ -136,7 +135,6 @@ void main() {
 
       final List<Map<String, dynamic>> msgs = await buildApiMessages(
         conv,
-        shizukuReady: false,
       );
       final List<Map<String, dynamic>> toolMsgs = msgs
           .where((Map<String, dynamic> m) => m['role'] == 'tool')

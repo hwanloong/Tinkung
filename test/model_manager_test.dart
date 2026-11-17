@@ -2,14 +2,13 @@
 //
 // 这两件事必须钉住：
 //  1. 第一次启动就应该有能直接用的模型，而不是空列表；
-//  2. 免费档的**工具白名单**真的把 shell / Termux 排除在外。
+//  2. 免费档的**工具白名单**真的把 shell 排除在外。
 import 'dart:io';
 
 import 'package:dsh_agent/core/model_profile.dart';
 import 'package:dsh_agent/core/models.dart';
 import 'package:dsh_agent/core/productivity.dart';
 import 'package:dsh_agent/core/store.dart';
-import 'package:dsh_agent/shizuku/shizuku_service.dart';
 import 'package:dsh_agent/tools/model_tool.dart';
 import 'package:dsh_agent/tools/tool.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,7 +18,6 @@ import 'test_plugins.dart';
 
 ToolContext _ctx(Settings s) => ToolContext(
   settings: s,
-  shizuku: ShizukuService(),
   conversation: Conversation(id: 'c1', title: '测试'),
   workDir: Directory.systemTemp.path,
   searchApiKey: '',
@@ -58,10 +56,10 @@ void main() {
     expect(s.allowsTool('web'), isTrue);
     expect(s.allowsTool('python'), isTrue);
     expect(s.allowsTool('model_manager'), isTrue);
-    // 这两条原本是 false（免费档被挡在 shell/termux 之外）。
+    // 这两条原本是 false（免费档被挡在 shell 之外）。
     // 现在放开 —— 该不该执行由"风险确认"那层管，不是按免费与否一刀切。
-    expect(s.allowsTool('run_shell'), isTrue);
-    expect(s.allowsTool('termux'), isTrue);
+    expect(s.allowsTool('linux'), isTrue);
+    expect(s.allowsTool('file_op'), isTrue);
   });
 
   test('老存档里的免费档白名单会在读入时被清掉', () async {
@@ -88,7 +86,7 @@ void main() {
       isNull,
       reason: '只改新建档案而不迁移，老用户升级后限制还在',
     );
-    expect(s.allowsTool('run_shell'), isTrue);
+    expect(s.allowsTool('linux'), isTrue);
   });
 
   test('自建档案的白名单不会被顺手抹掉', () async {
@@ -110,7 +108,7 @@ void main() {
 
     final Settings s = await Settings.load();
     expect(s.activeProfile!.toolAllowlist, <String>['web']);
-    expect(s.allowsTool('run_shell'), isFalse);
+    expect(s.allowsTool('linux'), isFalse);
   });
 
   test('模型工具能添加、切换、调思考深度，并拒绝删除内置免费档', () async {

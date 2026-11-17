@@ -16,7 +16,7 @@ import 'tool.dart';
 ///
 /// 它是内置工具，和 `request_unlock` 一样：
 /// · 没有文件夹、删不掉；
-/// · 不进 `FolderToolStore`，所以 **@ 不出来**（@ 面板只列文件夹工具）；
+/// · 不进 `SkillStore`，所以 **@ 不出来**（@ 面板只列文件夹工具）；
 /// · 在工具页里以「固定」角标出现。
 class NotifyTool extends AgentTool {
   const NotifyTool();

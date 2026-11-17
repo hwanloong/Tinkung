@@ -520,6 +520,8 @@ class Conversation {
     List<ChatMessage>? messages,
     DateTime? updatedAt,
     this.pinned = false,
+    this.deviceId,
+    this.artifactId,
   }) : messages = messages ?? <ChatMessage>[],
        updatedAt = updatedAt ?? DateTime.now();
 
@@ -534,6 +536,13 @@ class Conversation {
   /// （正在跟进的那件事、长期在用的那个）。没有置顶的话，它们每天被
   /// 新对话往下挤，用户只能靠翻。
   bool pinned;
+
+  /// External device conversations are isolated from ordinary chat history.
+  final String? deviceId;
+
+  /// External Artifact 专属会话的来源标识（authority）。
+  /// null 表示这是普通对话，非空表示这条会话归属于某个 artifact。
+  final String? artifactId;
 
   /// 这一条是不是**还没写过东西的空白页**。
   ///
@@ -560,6 +569,8 @@ class Conversation {
     'messages': messages.map((ChatMessage m) => m.toJson()).toList(),
     'updatedAt': updatedAt.toIso8601String(),
     'pinned': pinned,
+    if (deviceId != null) 'deviceId': deviceId,
+    if (artifactId != null) 'artifactId': artifactId,
   };
 
   static Conversation fromJson(Map<String, dynamic> j) => Conversation(
@@ -576,6 +587,8 @@ class Conversation {
     // 老存档没有这个字段 → false。默认 false 是对的：置顶是用户
     // 明确做过的动作，不该由一次升级替他"猜"出来。
     pinned: j['pinned'] as bool? ?? false,
+    deviceId: j['deviceId']?.toString(),
+    artifactId: j['artifactId']?.toString(),
   );
 
   String encode() => jsonEncode(toJson());

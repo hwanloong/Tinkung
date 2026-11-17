@@ -109,7 +109,7 @@ class WebViewLoader {
   ///
   /// ## 为什么值得做这一步
   ///
-  /// "AI 在浏览器里登录过、然后让 termux 里的 curl 带着这份登录态去拉接口"
+  /// "AI 在浏览器里登录过、然后让 `linux` 里的 curl 带着这份登录态去拉接口"
   /// 是这套东西最实用的组合之一。而 `curl -b` 要的是 Netscape 那种
   /// 制表符分隔的老格式 —— 让模型手写这段格式，它每次都会写错（列数、
   /// 域名前面的点、过期时间的单位）。
@@ -305,7 +305,7 @@ return {
   static String netscapeCookies(List<Cookie> cookies) {
     final StringBuffer sb = StringBuffer();
     sb.writeln('# Netscape HTTP Cookie File');
-    sb.writeln('# 由 Zeus 从内置浏览器导出，可直接给 curl -b 用');
+    sb.writeln('# 由 Tinkung 从内置浏览器导出，可直接给 curl -b 用');
     for (final Cookie c in cookies) {
       String domain = c.domain ?? '';
       // 域名以点开头表示"包含子域"，Netscape 格式把它放在第 2 列

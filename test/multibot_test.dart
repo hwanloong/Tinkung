@@ -11,7 +11,6 @@ import 'package:dsh_agent/core/models.dart';
 import 'package:dsh_agent/core/productivity.dart';
 import 'package:dsh_agent/core/store.dart';
 import 'package:dsh_agent/plugins/plugin.dart';
-import 'package:dsh_agent/shizuku/shizuku_service.dart';
 import 'package:dsh_agent/tools/multibot_tool.dart';
 import 'package:dsh_agent/tools/tool.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -22,7 +21,6 @@ ToolContext _ctx({
 }) {
   return ToolContext(
     settings: _s,
-    shizuku: ShizukuService(),
     conversation: Conversation(id: 'c1', title: '测试'),
     workDir: '/tmp/dsh-test',
     searchApiKey: '',

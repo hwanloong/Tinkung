@@ -134,7 +134,7 @@ type Message = {
   pending: boolean;         // true = 还在流式生成
   error: string | null;     // 出错时的说明
   tools: Array<{
-    name: string;           // 工具名，如 'python' / 'termux' / 'web'
+    name: string;           // 工具名，如 'python' / 'linux' / 'web'
     summary: string;        // 目前等于 name（保留字段，将来会给摘要）
     status: string;         // 见下表
   }>;

@@ -80,7 +80,7 @@ class _AgentMdPageState extends State<AgentMdPage> {
   /// 不要的、补上自己的项目习惯，比从零写快得多。
   ///
   /// 模板内容见 `assets/agent_md_template.md`：已经对齐本 App 的工具
-  /// （`reader` / `writer` / `varbank` / `termux` / 内置 Python 的边界）。
+  /// （`reader` / `writer` / `varbank` / `linux` / `python` 的边界）。
   ///
   /// 已有内容时**先确认**再覆盖：这份文档可能是用户写了很久的。
   Future<void> _useTemplate() async {

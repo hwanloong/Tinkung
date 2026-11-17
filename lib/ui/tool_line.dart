@@ -19,8 +19,8 @@ import '../theme/app_theme.dart';
 /// ## 为什么图标要**按语义**挑，而不是每个工具一个花样
 ///
 /// 图标的作用是"扫一眼就知道它动了什么"：
-/// shell / python / termux 都是"执行代码"，但它们的**风险面**不同，
-/// 所以给了不同的形状（终端、代码、命令行）以便区分；
+/// linux / python / sheller 都是"执行代码"，但它们的**风险面**不同，
+/// 所以给了不同的形状（命令行、代码、脚本）以便区分；
 /// 而文件、笔记、任务这些一眼能分。全都用同一个"扳手"就等于没有图标。
 class ToolDisplay {
   const ToolDisplay._();
@@ -33,8 +33,7 @@ class ToolDisplay {
     }
 
     return switch (name) {
-      'run_shell' => (Icons.terminal_rounded, 'shell'),
-      'termux' => (Icons.code_rounded, 'termux'),
+      'linux' => (Icons.code_rounded, 'Shell'),
       'python' => (Icons.data_object_rounded, 'python'),
       'file_op' => (Icons.folder_outlined, '文件'),
       'filesearch' => (Icons.search_rounded, '找文件'),
@@ -42,9 +41,6 @@ class ToolDisplay {
       'writer' => (Icons.edit_note_rounded, '改文件'),
       'sheller' => (Icons.bolt_rounded, '脚本'),
       'geter' => (Icons.inventory_2_outlined, '对象池'),
-      'app_manage' => (Icons.apps_rounded, '应用'),
-      'system_settings' => (Icons.settings_outlined, '系统设置'),
-      'screen_capture' => (Icons.screenshot_monitor_outlined, '截屏'),
       'web' => (Icons.travel_explore_rounded, '联网搜索'),
       'browser' => (Icons.public_rounded, '浏览器'),
       'read_image' => (Icons.image_outlined, '识图'),
@@ -59,9 +55,6 @@ class ToolDisplay {
       // ---- 下面这些以前落到兜底分支，显示成一把扳手 + 裸英文名 ----
       // 「严格标识」的要求是：每个内置工具都有一个看得懂的名字，
       // 不能靠"名字看起来像什么"去猜。
-      'ui_tree' => (Icons.account_tree_outlined, '控件树'),
-      'ui_action' => (Icons.touch_app_outlined, '界面操作'),
-      'draw_path' => (Icons.gesture_rounded, '画路径'),
       'interact' => (Icons.smart_button_outlined, '互动面板'),
       'change_think' => (Icons.auto_fix_high_outlined, '框选修改'),
       'knowledge' => (Icons.menu_book_outlined, '知识库'),
@@ -112,7 +105,7 @@ const double kToolRowHeight = 26;
 /// 三者相差 2.3，比任何图标字形自身的偏移都大（见下一条）。所以这张表
 /// 实质是"字形 → 它在 [ToolDisplay] 里对应的那个标签"的补偿：每个工具
 /// 只对应一个标签，按字形查等价于按标签查。真按"家族统一值"给，就必然
-/// 有一半的行是歪的（用户报的 python / termux 那两行就是）。
+/// 有一半的行是歪的（用户报的 python / linux 那两行就是）。
 ///
 /// ## 这些数字怎么来的（逐个字形量的，不是估的）
 ///
@@ -138,9 +131,9 @@ const double kToolRowHeight = 26;
 ///
 /// 旧值里**只有终端那一个数是量过的**，其余是从它身上套的。实测：
 ///  · `terminal_rounded` 配 `shell` 要 1.33 → **1.3 准，保留**；
-///  · `code_rounded` 配 `termux` 要 1.67 → 旧值 **少 0.4**；
+///  · `code_rounded` 配 `linux` 要 1.67 → 旧值 **少 0.4**；
 ///  · `data_object_rounded` 配 `python` 要 **2.50** → 旧值 0.5 **少 2.0**，
-///    这就是"python 的图标和文字没对齐"；termux 同理，只是差得少一半；
+///    这就是"python 的图标和文字没对齐"；linux 同理，只是差得少一半；
 ///  · `psychology_outlined`（记忆 / 思考）要 0.33 → 旧值 1.2 **多 0.9**，
 ///    那一行原来是图标偏低而不是偏高。
 ///
@@ -158,9 +151,9 @@ const double kToolIconNudgeUnknown = 0.5;
 final Map<IconData, double> _kIconNudge = <IconData, double>{
   // ---- 终端家族：都是"执行代码"，但标签不同，补偿能差到 1.2 ----
   // 这一组正是"家族统一值"不成立的地方：三个字形自己的墨迹都在 13.00，
-  // 差别全在标签上（shell 没有下伸部，termux 有一点点，python 有 p/y）。
+  // 差别全在标签上（shell 没有下伸部，linux 也没有，python 有 p/y）。
   Icons.terminal_rounded: 1.3, // shell  14.33 / 13.00
-  Icons.code_rounded: 1.7, // termux 14.67 / 13.00（旧值 1.3，少 0.4）
+  Icons.code_rounded: 1.7, // linux 14.67 / 13.00（旧值 1.3，少 0.4）
   Icons.data_object_rounded: 2.5, // python 15.50 / 13.00（旧值 0.5，少 2.0）
   // ---- 纯中文标签：中文墨迹在行盒里几乎是居中的，补 0.2 就够 ----
   Icons.folder_outlined: 0.2, // 文件    13.17 / 13.00
@@ -180,7 +173,7 @@ final Map<IconData, double> _kIconNudge = <IconData, double>{
   Icons.article_outlined: 0.2, // 读文件
   Icons.edit_note_rounded: 0.2, // 改文件（字形墨迹居中，纯中文标签）
   Icons.inventory_2_outlined: 0.2, // 对象池
-  // sheller 的标签是"脚本"（纯中文），和 run_shell 的 "shell" 不同档，
+  // sheller 的标签是"脚本"（纯中文），和 linux 的 "linux" 不同档，
   // 所以**不能**复用 `terminal_rounded` —— 那张表是按"字形 + 标签"查的，
   // 同一个字形配两种标签就必须有一边是歪的。这里改用闪电，语义是"跑"。
   Icons.bolt_rounded: 0.2, // 脚本
@@ -276,7 +269,7 @@ class ToolRow extends StatelessWidget {
 ///
 /// 三个元素的分工：
 ///  · **图标** = 一眼看出它动了什么（终端 / 文件 / 网络 / 应用…）；
-///  · **工具名** = 到底调的是哪个（`python` 和 `termux` 都能执行代码，
+///  · **工具名** = 到底调的是哪个（`python` 和 `linux` 都能执行代码，
 ///    但风险面不同，必须能分）；
 ///  · **摘要** = 这次具体干了什么（命令原文、查询词、文件路径）。
 ///

@@ -25,7 +25,7 @@ const String kFreeFallbackModel = 'kilo-auto/free';
 /// 内置免费档能用的工具。
 ///
 /// 用户的要求很具体：**联网搜索、Python、改模型、本地笔记/任务**，
-/// 以及其它不碰 shell / Termux 的基础操作。白名单而不是黑名单，
+/// 以及其它不碰 shell 的基础操作。白名单而不是黑名单，
 /// 是因为免费通道的能力和额度都由上游决定，漏掉一个危险工具
 /// 的代价比多拦一个基础工具大得多。
 const List<String> kBasicToolAllowlist = <String>[
@@ -240,7 +240,7 @@ class ModelProfile {
   /// `null` = 不限制（跟随注册表）；非 null = 只保留这些名字。
   /// 和 [tools] 的区别：[tools] 是历史字段，现在只描述"档案自己声明了
   /// 哪些可选能力"；[toolAllowlist] 是注册表在构建时的硬过滤，
-  /// 免费档正是靠它把 shell / Termux 挡在外面。
+  /// 免费档正是靠它把 shell 挡在外面。
   List<String>? toolAllowlist;
 
   /// 是否是**内置免费档**。

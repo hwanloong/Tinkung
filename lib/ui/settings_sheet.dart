@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/app_info.dart';
-import '../core/a11y.dart';
 import '../core/agent_doc.dart';
 import '../core/background.dart';
-import '../core/folder_tool.dart';
+import '../core/custom_font.dart';
+import '../core/external_artifact.dart';
+import '../core/skill.dart';
 import '../core/linux.dart';
 import '../core/lock.dart';
 import '../core/learning.dart';
@@ -19,6 +20,7 @@ import '../core/store.dart';
 import '../core/web_search.dart';
 import '../plugins/plugin.dart';
 import '../theme/app_theme.dart';
+import '../theme/font_options.dart';
 import '../theme/glass.dart';
 import '../tools/browser_tool.dart';
 import '../tools/webview_loader.dart';
@@ -35,13 +37,130 @@ import 'chat_memory_page.dart';
 import 'models_sheet.dart';
 import 'plugins_sheet.dart';
 import 'python_console_page.dart';
-import 'remote_page.dart';
 import 'rules_page.dart';
 import 'storage_sheet.dart';
 import 'teenspace_page.dart';
 import 'terminal_page.dart';
 import 'lock_ui.dart';
-import 'tools_page.dart';
+import 'skills_page.dart';
+import 'external_artifact_page.dart';
+import 'font_settings_page.dart';
+
+/// 设置页里可以直接点选的**种子色**。
+///
+/// 这些不是"强调色候选"，而是整套配色的起点：`ColorScheme.fromSeed`
+/// 会从它推出 primary / secondary / tertiary 以及全部 surfaceContainer 档。
+/// 第一支是默认的陶土橙，和 `AppColors.defaultSeed` 保持一致。
+const List<Color> _kSeedPresets = <Color>[
+  Color(0xFFD97757), // 陶土橙（默认）
+  Color(0xFFE5484D), // 红
+  Color(0xFFD6409F), // 粉
+  Color(0xFF8E4EC6), // 紫
+  Color(0xFF3E63DD), // 靛蓝
+  Color(0xFF0090FF), // 蓝
+  Color(0xFF12A594), // 青
+  Color(0xFF30A46C), // 绿
+  Color(0xFFA18000), // 黄
+  Color(0xFFAD7F58), // 棕
+  Color(0xFF5C6F84), // 蓝灰
+  Color(0xFF8B8D98), // 灰
+];
+
+// ---------------------------------------------------------------- 分类
+//
+// 设置项有六十多行，靠一根滚动条找一项很难受。这里给每个小节贴一个
+// **分类标签**，顶上那排胶囊按标签过滤 —— 点「权限与安全」就只剩四小节，
+// 不用在整页里翻。仍然是单页：没有"目录 → 分类"那一层点击，
+// 改一个开关还是一步到位。
+class _Category {
+  const _Category(this.id, this.label, this.icon);
+
+  final String id;
+  final String label;
+  final IconData icon;
+}
+
+const List<_Category> _kCategories = <_Category>[
+  _Category('all', '全部', Icons.dashboard_outlined),
+  _Category('appearance', '外观', Icons.palette_outlined),
+  _Category('model', '模型', Icons.smart_toy_outlined),
+  _Category('network', '联网', Icons.public_outlined),
+  _Category('security', '权限与安全', Icons.shield_outlined),
+  _Category('chat', '对话与记忆', Icons.forum_outlined),
+  _Category('data', '数据与扩展', Icons.folder_copy_outlined),
+  _Category('about', '关于', Icons.info_outline_rounded),
+];
+
+/// 小节标题 → 分类 id。加了新小节只要在这里补一行，
+/// 分类条、搜索、卡片布局三处会同时认得它。
+const Map<String, String> _kSectionCategory = <String, String>{
+  '外观': 'appearance',
+  '模型': 'model',
+  '搜索与网络': 'network',
+  '开发者': 'data',
+  '安全': 'security',
+  '权限': 'security',
+  '数据': 'data',
+  '对话': 'chat',
+  '记忆': 'chat',
+  '学习': 'chat',
+  '安全确认': 'security',
+  '关于': 'about',
+};
+
+/// 小节头左边的小图标。
+const Map<String, IconData> _kSectionIcon = <String, IconData>{
+  '外观': Icons.palette_outlined,
+  '模型': Icons.smart_toy_outlined,
+  '搜索与网络': Icons.public_outlined,
+  '开发者': Icons.bug_report_outlined,
+  '安全': Icons.shield_moon_outlined,
+  '权限': Icons.lock_outline_rounded,
+  '数据': Icons.folder_copy_outlined,
+  '对话': Icons.forum_outlined,
+  '记忆': Icons.psychology_outlined,
+  '学习': Icons.school_outlined,
+  '安全确认': Icons.gpp_maybe_outlined,
+  '关于': Icons.info_outline_rounded,
+};
+
+/// 搜索用的关键词。
+///
+/// 为什么按**小节**匹配而不是按行：设置里一大半行是开关、滑杆和输入框，
+/// 它们没有可搜的标题文本；逐行过滤会剩下"能搜到的入口卡 + 一堆孤零零
+/// 的开关"。按小节匹配则是"搜到一个词 → 把整张相关卡片给你"，
+/// 上下文还在，不会不知道自己改的是哪一栏。
+const Map<String, String> _kSectionKeywords = <String, String>{
+  '外观':
+      '外观 工作方式 学生 日常 程序员 字号 字体 缩放 横屏 界面 配色 '
+      '主题色 种子色 颜色 色板 自定义颜色 壁纸 动态取色 material you',
+  '模型':
+      '模型 接口 api key 地址 密钥 思考 思维链 推理强度 推理 强度 effort '
+      '温度 temperature 生图 图像 描述改进 提示词 改写 输入建议 '
+      '工具调用次数 轮次 次数 rounds 视觉 vision 模型名 上下文',
+  '搜索与网络':
+      '联网 搜索 网页 ua 桌面版 抓网页 浏览器 搜索引擎 bing 百度 '
+      'duckduckgo google 结果条数 搜索通道 直连 tavily 接口与识图 识图 '
+      '视觉 图像理解 vision 联网方式 视觉接口 视觉模型',
+  '开发者': '开发者 排障 性能 耗时 明细 日志 log 逐轮 调试 导出',
+  '安全': '安全 内容尺度 成人 政治 题目 teenspace 青少年 敏感度',
+  '权限':
+      '权限 密码 密码与安全 指纹 锁 安全 解锁 tool 技能 工具开关 终端 '
+      'linux alpine 命令 脚本 工作目录',
+  '数据':
+      '数据 备份 导出备份 导入备份 导出 导入 恢复 json 存储 存储空间 '
+      'agent.md 自定义规则 规则 python 控制台 插件 知识库 mcp 服务器 '
+      'external artifact 文件 产物 笔记 任务 截图 录屏 附件 清理',
+  '对话':
+      '对话 上下文 压缩 每轮压缩 不压缩 轮次 保留最近几轮全文 保留 '
+      '全文 token 比例 ratio every off 摘要',
+  '记忆': '记忆 跨聊天记忆 回忆 recall 长期 删除 管理记忆 可回忆的对话 启用记忆',
+  '学习': '学习 自学习 复盘 笔记 经验 技能 弯路 自学习笔记',
+  '安全确认':
+      '确认 安全确认 放行 全部放行 自动执行 只读命令 只读 危险 后台 保活 '
+      '电池 白名单 悬浮窗 权限 询问',
+  '关于': '关于 版本 作者 github 信息 许可 更新 隐私 本地 源代码 更新日志',
+};
 
 /// 打开设置。
 ///
@@ -102,8 +221,7 @@ class _SettingsSheet extends StatefulWidget {
   State<_SettingsSheet> createState() => _SettingsSheetState();
 }
 
-class _SettingsSheetState extends State<_SettingsSheet>
-    with WidgetsBindingObserver {
+class _SettingsSheetState extends State<_SettingsSheet> {
   // 地址 / 密钥 / 模型名这三个输入框已经搬到「模型」页面（那边能绑多个模型），
   // 所以这里不再持有它们的 controller —— 留着就会变成一个"改了也不落盘"的
   // 影子输入框，比删掉更糟。
@@ -148,13 +266,20 @@ class _SettingsSheetState extends State<_SettingsSheet>
   /// 悬浮窗权限状态；null 表示还没查到
   bool? _canOverlay;
 
-  /// 无障碍服务状态；null 表示还没查到
-  bool? _a11yOn;
+  String _searchQuery = '';
+  final TextEditingController _searchCtrl = TextEditingController();
+
+  /// 搜索框的焦点。整个圆角框都要能点进输入状态，不能只有中间一小条。
+  final FocusNode _searchFocus = FocusNode();
+
+  /// 当前选中的分类。`all` = 不过滤，所有小节都显示。
+  ///
+  /// 纯界面状态，不落盘：下次进设置应该看到全部，而不是停在昨天那一栏。
+  String _category = 'all';
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
 
     // 探测后台保活状态（有没有加入电池优化白名单）。
     // 不 await：它是异步的系统查询，不该拖慢设置页打开。
@@ -192,24 +317,10 @@ class _SettingsSheetState extends State<_SettingsSheet>
     OverlayService.canDraw().then((bool v) {
       if (mounted) setState(() => _canOverlay = v);
     });
-    A11y.enabled().then((bool v) {
-      if (mounted) setState(() => _a11yOn = v);
-    });
-  }
-
-  /// 从系统无障碍设置页回来时重新查一次。用户在那里要翻好几层，
-  /// 不可能靠一个固定延迟猜他什么时候回来。
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed) return;
-    A11y.enabled().then((bool v) {
-      if (mounted && v != _a11yOn) setState(() => _a11yOn = v);
-    });
   }
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _persist();
     _searchKey.dispose();
     _visionUrl.dispose();
@@ -218,6 +329,8 @@ class _SettingsSheetState extends State<_SettingsSheet>
     _imageGenModel.dispose();
     _improveModel.dispose();
     _improveInstruction.dispose();
+    _searchCtrl.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -288,79 +401,20 @@ class _SettingsSheetState extends State<_SettingsSheet>
     return matches.isEmpty ? '档案已删除，将跟随当前模型' : matches.first.displayName;
   }
 
-  /// 字号。
+  /// 当前字体组合，显示在入口卡右侧（"我现在用的是什么"不用点进去看）。
   ///
-  /// **字体本身不可选。** 三套字体按用途固定：AI 正文用打包的
-  /// Noto Sans SC、代码用 Consolas、界面交互用系统默认字体。
-  /// 见 `AppFonts` 的类注释。所以这里只有字号 —— 那是可访问性相关的
-  /// 东西（有人就是看不清 15px 的正文），和"用哪款字体"不是一类需求。
-  Widget _fontOptions(AppSurface s) {
-    return _SettingRow(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          // ---- 字号 ----
-          Row(
-            children: <Widget>[
-              Text('字号', style: AppFonts.body(size: 13, color: s.text)),
-              const Spacer(),
-              // 显示**最终**倍率而不是滑杆值 ——
-              // 用户关心的是"实际多大"，不是"我调了多少"
-              Text(
-                '${(AppFonts.baseScale * widget.settings.fontScale * 100).round()}%',
-                style: AppFonts.code(size: 12, color: AppColors.accent),
-              ),
-            ],
-          ),
-          Slider(
-            value: widget.settings.fontScale,
-            min: 0.85,
-            max: 1.4,
-            divisions: 11,
-            label:
-                '${(AppFonts.baseScale * widget.settings.fontScale * 100).round()}%',
-            onChanged: (double v) =>
-                widget.settings.update(() => widget.settings.fontScale = v),
-          ),
-          Text(
-            '所有文字（正文、代码块、表格）会一起缩放。'
-            '刻意不用系统的字体大小设置 —— markdown 走 RichText，'
-            '它不响应那个设置，会导致正文放大而代码块没放大。',
-            style: AppFonts.body(size: 11, color: s.muted, height: 1.5),
-          ),
-
-          const SizedBox(height: 14),
-          Divider(color: s.border, height: 1),
-          const SizedBox(height: 12),
-          Row(
-            children: <Widget>[
-              Text('横屏字号', style: AppFonts.body(size: 13, color: s.text)),
-              const Spacer(),
-              Text(
-                '${(AppFonts.baseScale * widget.settings.fontScale * widget.settings.landscapeFontScale * 100).round()}%',
-                style: AppFonts.code(size: 12, color: AppColors.accent),
-              ),
-            ],
-          ),
-          Slider(
-            value: widget.settings.landscapeFontScale,
-            min: 0.85,
-            max: 1.4,
-            divisions: 11,
-            label: '${(widget.settings.landscapeFontScale * 100).round()}%',
-            onChanged: (double v) => widget.settings.update(
-              () => widget.settings.landscapeFontScale = v,
-            ),
-          ),
-          Text(
-            '只在横屏时叠加到上面的全局字号；竖屏不受影响。'
-            '横屏高度更紧，建议比竖屏小一档。',
-            style: AppFonts.body(size: 11, color: s.muted, height: 1.5),
-          ),
-        ],
-      ),
+  /// 中文没单独选时不显示 —— 那行字会被挤成省略号，反而看不出是什么。
+  String _fontSummary() {
+    final FontOption latin = resolveFont(
+      withCustom(kLatinFonts, CustomFont.latin),
+      widget.settings.fontLatin,
     );
+    final FontOption cjk = resolveFont(
+      withCustom(kCjkFonts, CustomFont.cjk),
+      widget.settings.fontCjk,
+    );
+    if (cjk.family == null) return latin.label;
+    return '${latin.label} · ${cjk.label}';
   }
 
   /// 入口行的**统一行高**。所有入口卡（常用 / 更多 / 子页里的条目）
@@ -405,6 +459,9 @@ class _SettingsSheetState extends State<_SettingsSheet>
     // ignore: unused_element_parameter
     required IconData icon,
     required String title,
+    // **说明文字不再显示**（用户反馈"注释太多"）。参数保留，
+    // 二十来个调用点不用改；以后想恢复，改这一处渲染就行。
+    // ignore: unused_element_parameter
     required String desc,
     required VoidCallback onTap,
 
@@ -412,63 +469,64 @@ class _SettingsSheetState extends State<_SettingsSheet>
     /// 有它就不用点进去确认状态。
     String? trailingText,
   }) {
+    // 搜索现在由 [_groupIntoCards] 按**整张卡片**过滤：搜到一个词就把
+    // 相关的那一栏整块留下，而不是把卡片里的入口逐条藏掉。
     return _SettingRow(
-        padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-        onTap: onTap,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: _entryRowHeight),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: <Widget>[
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppFonts.body(
-                        size: 15.5,
-                        weight: FontWeight.w400,
-                        color: s.text,
-                        height: 1.3,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      desc,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppFonts.body(
-                        size: 12.5,
-                        color: s.muted,
-                        height: 1.4,
-                      ),
-                    ),
-                  ],
-                ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+      onTap: onTap,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: _entryRowHeight),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Container(
+              width: 32,
+              height: 32,
+              margin: const EdgeInsets.only(right: 12),
+              decoration: BoxDecoration(
+                color: AppColors.accent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
               ),
-              if ((trailingText ?? '').trim().isNotEmpty) ...<Widget>[
-                const SizedBox(width: 8),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 84),
-                  child: Text(
-                    trailingText!.trim(),
+              child: Icon(icon, size: 17, color: AppColors.accent),
+            ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(
+                    title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.right,
-                    style: AppFonts.body(size: 13, color: s.muted),
+                    style: AppFonts.body(
+                      size: 15,
+                      weight: FontWeight.w400,
+                      color: s.text,
+                      height: 1.3,
+                    ),
                   ),
+                ],
+              ),
+            ),
+            if ((trailingText ?? '').trim().isNotEmpty) ...<Widget>[
+              const SizedBox(width: 8),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 84),
+                child: Text(
+                  trailingText!.trim(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: AppFonts.body(size: 13, color: s.muted),
                 ),
-              ],
-              const SizedBox(width: 2),
-              Icon(Icons.chevron_right_rounded, size: 20, color: s.muted),
+              ),
             ],
-          ),
+            const SizedBox(width: 2),
+            Icon(Icons.chevron_right_rounded, size: 20, color: s.muted),
+          ],
         ),
-      );
+      ),
+    );
   }
 
   /// 后台保活：前台服务 + 电池优化白名单。
@@ -481,73 +539,68 @@ class _SettingsSheetState extends State<_SettingsSheet>
     final bool ok = st.batteryIgnored;
 
     return _SettingRow(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                Icon(
-                  ok
-                      ? Icons.battery_saver_rounded
-                      : Icons.battery_alert_outlined,
-                  size: 18,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(
+                ok ? Icons.battery_saver_rounded : Icons.battery_alert_outlined,
+                size: 18,
+                color: ok ? AppColors.success : AppColors.warning,
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  '后台保活',
+                  style: AppFonts.body(
+                    size: 14,
+                    weight: FontWeight.w600,
+                    color: s.text,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+              Text(
+                ok ? '已加入白名单' : '未加入',
+                style: AppFonts.body(
+                  size: 12,
                   color: ok ? AppColors.success : AppColors.warning,
                 ),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Text(
-                    '后台保活',
-                    style: AppFonts.body(
-                      size: 14,
-                      weight: FontWeight.w600,
-                      color: s.text,
-                      height: 1.3,
-                    ),
-                  ),
-                ),
-                Text(
-                  ok ? '已加入白名单' : '未加入',
-                  style: AppFonts.body(
-                    size: 12,
-                    color: ok ? AppColors.success : AppColors.warning,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            mdText(
-              // 说清"两件事"和"仍不保证"，否则用户会以为开了就一定跑完
-              '前台服务挡得住内存回收，但挡不住 Doze（打盹时挂起 CPU、断网），'
-              '所以还需要把它加入电池优化白名单。\n\n'
-              '⚠️ 部分国产 ROM 有更激进的省电策略，做这两件事**显著提高**长任务存活率，'
-              '但不保证一定跑完 —— 所以长任务（编译等）仍建议把输出写进日志文件，'
-              '之后回来读，而不是挂着干等。',
-              style: AppFonts.body(size: 11.5, color: s.muted, height: 1.6),
-            ),
-            if (!ok) ...<Widget>[
-              const SizedBox(height: 10),
-              GlassButton(
-                label: '去申请（跳系统弹窗）',
-                icon: Icons.open_in_new_rounded,
-                fontSize: 12.5,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                onTap: () async {
-                  await BackgroundService.instance.requestBattery();
-                  // 用户可能在系统弹窗里操作完才回来，延迟一点再刷新，
-                  // 免得刚跳过去就查、拿到还是旧状态
-                  await Future<void>.delayed(const Duration(seconds: 1));
-                  await BackgroundService.instance.refresh();
-                  if (mounted) setState(() {});
-                },
               ),
             ],
+          ),
+          const SizedBox(height: 8),
+          mdText(
+            // 说清"两件事"和"仍不保证"，否则用户会以为开了就一定跑完
+            '前台服务挡得住内存回收，但挡不住 Doze（打盹时挂起 CPU、断网），'
+            '所以还需要把它加入电池优化白名单。\n\n'
+            '⚠️ 部分国产 ROM 有更激进的省电策略，做这两件事**显著提高**长任务存活率，'
+            '但不保证一定跑完 —— 所以长任务（编译等）仍建议把输出写进日志文件，'
+            '之后回来读，而不是挂着干等。',
+            style: AppFonts.body(size: 11.5, color: s.muted, height: 1.6),
+          ),
+          if (!ok) ...<Widget>[
+            const SizedBox(height: 10),
+            GlassButton(
+              label: '去申请（跳系统弹窗）',
+              icon: Icons.open_in_new_rounded,
+              fontSize: 12.5,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              onTap: () async {
+                await BackgroundService.instance.requestBattery();
+                // 用户可能在系统弹窗里操作完才回来，延迟一点再刷新，
+                // 免得刚跳过去就查、拿到还是旧状态
+                await Future<void>.delayed(const Duration(seconds: 1));
+                await BackgroundService.instance.refresh();
+                if (mounted) setState(() {});
+              },
+            ),
           ],
-        ),
-      );
+        ],
+      ),
+    );
   }
 
   /// 悬浮窗确认开关 + 权限状态
@@ -574,17 +627,6 @@ class _SettingsSheetState extends State<_SettingsSheet>
                         weight: FontWeight.w600,
                         color: s.text,
                         height: 1.3,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '工具经常会把别的应用切到前台（打开应用、跳系统设置页等），'
-                      '这时应用内弹窗会被盖住，你必须切回来才能点确认。'
-                      '开启后改用系统悬浮窗，它始终在最上层。',
-                      style: AppFonts.body(
-                        size: 12.3,
-                        color: s.muted,
-                        height: 1.5,
                       ),
                     ),
                   ],
@@ -644,98 +686,6 @@ class _SettingsSheetState extends State<_SettingsSheet>
     );
   }
 
-  /// 无障碍服务：控件树、语义点击、连续手势都靠它。
-  Widget _a11yRow(AppSurface s) {
-    final bool on = _a11yOn == true;
-    final bool unknown = _a11yOn == null;
-    return _SettingRow(
-      padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Icon(
-                on ? Icons.touch_app_rounded : Icons.touch_app_outlined,
-                size: 19,
-                color: on ? AppColors.success : s.muted,
-              ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      '手机控制（无障碍）',
-                      style: AppFonts.body(
-                        size: 14,
-                        weight: FontWeight.w600,
-                        color: s.text,
-                        height: 1.3,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '让 AI 读取当前界面的控件结构，按名称点击/输入，'
-                      '并支持一次手势连续滑动和绘制。不开启时仍可用截图方案，'
-                      '但只能看图猜坐标。',
-                      style: AppFonts.body(
-                        size: 12.3,
-                        color: s.muted,
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: <Widget>[
-              Icon(
-                on ? Icons.check_circle_rounded : Icons.info_outline_rounded,
-                size: 15,
-                color: on ? AppColors.success : AppColors.warning,
-              ),
-              const SizedBox(width: 7),
-              Expanded(
-                child: Text(
-                  unknown
-                      ? '正在检查'
-                      : on
-                      ? '已开启，语义操作可用'
-                      : '未开启，目前只能截图猜坐标',
-                  style: AppFonts.body(
-                    size: 12.2,
-                    color: on ? AppColors.success : s.muted,
-                    height: 1.45,
-                  ),
-                ),
-              ),
-              GlassButton(
-                label: on ? '系统设置' : '去开启',
-                accent: !on,
-                fontSize: 12.5,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 7,
-                ),
-                onTap: () async {
-                  await A11y.openSettings();
-                  await Future<void>.delayed(const Duration(seconds: 1));
-                  final bool v = await A11y.enabled();
-                  if (mounted) setState(() => _a11yOn = v);
-                },
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   /// 当前模型入口：显示"现在用的是哪个"，点进去是「模型」页面。
   ///
   /// 为什么这里只留一张卡而不是把配置塞回来：模型档案是**一对多**的，
@@ -755,69 +705,68 @@ class _SettingsSheetState extends State<_SettingsSheet>
         final bool ready = p != null && p.usable;
 
         return _SettingRow(
-            padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (BuildContext _) =>
-                    ModelsPage(settings: widget.settings),
-              ),
+          padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (BuildContext _) =>
+                  ModelsPage(settings: widget.settings),
             ),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: _entryRowHeight),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: <Widget>[
-                  // 和目录里的入口卡同一套图标规格；没绑好模型时整块
-                  // 用警告色 —— 底色也跟着换，一眼看得出"这条还不通"。
-                  _entryIcon(
-                    ready
-                        ? Icons.smart_toy_outlined
-                        : Icons.error_outline_rounded,
-                    color: ready ? AppColors.accent : AppColors.warning,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Text(
-                          ready ? p.displayName : '还没有绑定模型',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppFonts.body(
-                            size: 15,
-                            weight: FontWeight.w600,
-                            color: s.text,
-                            height: 1.3,
-                          ),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: _entryRowHeight),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                // 和目录里的入口卡同一套图标规格；没绑好模型时整块
+                // 用警告色 —— 底色也跟着换，一眼看得出"这条还不通"。
+                _entryIcon(
+                  ready
+                      ? Icons.smart_toy_outlined
+                      : Icons.error_outline_rounded,
+                  color: ready ? AppColors.accent : AppColors.warning,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        ready ? p.displayName : '还没有绑定模型',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppFonts.body(
+                          size: 15,
+                          weight: FontWeight.w600,
+                          color: s.text,
+                          height: 1.3,
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          ready ? '${p.model} · ${p.host}' : '点这里绑定第一个模型',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppFonts.body(
-                            size: 12.5,
-                            color: s.muted,
-                            height: 1.4,
-                          ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        ready ? '${p.model} · ${p.host}' : '点这里绑定第一个模型',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppFonts.body(
+                          size: 12.5,
+                          color: s.muted,
+                          height: 1.4,
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 2),
-                  Icon(Icons.chevron_right_rounded, size: 20, color: s.muted),
-                ],
-              ),
+                ),
+                const SizedBox(width: 2),
+                Icon(Icons.chevron_right_rounded, size: 20, color: s.muted),
+              ],
             ),
-          );
+          ),
+        );
       },
     );
   }
 
   /// 复杂设置的折叠状态。默认收起：新手只需要看到常用项。
-  bool _uiAdvancedOpen = false;
   bool _modelImageOpen = false;
   bool _modelImproveOpen = false;
   bool _modelSuggestOpen = false;
@@ -828,1311 +777,1179 @@ class _SettingsSheetState extends State<_SettingsSheet>
   Widget build(BuildContext context) {
     final AppSurface s = AppSurface.of(context);
 
-    // ---- 单页平铺，**没有分类目录这一层** ----
+    // ---- 单页 + 顶部分类条 + 圆角分组卡片 ----
     //
     // 这里原来是"目录 → 分类"的两级结构：首屏五个入口卡，点进去才看到
     // 那一类的具体设置项。结果是**每次改一个开关都要点两下**，
     // 而且在目录页上根本看不出"我到底有哪些设置"。
     //
-    // 现在所有区块按"先常用、后进阶"的顺序排在同一页里，一路往下滑就是
-    // 全部设置。类与类之间用一条小节标题分隔（[_section]），
-    // 那就是唯一的层级 —— iOS 的设置页本来也是这样：一个长列表，
-    // 靠分组标题断开，而不是先让你选分类。
+    // 现在仍是单页，但分成两层可见结构：
+    //  · 顶上那排胶囊是**分类筛选**（[_buildCategoryBar]），点一下只留
+    //    相关的几张卡，不用跳页、不用返回；
+    //  · 每个小节是一张圆角卡片（[_groupIntoCards]），标题带图标和引导线。
+    //    卡片把"这几行是一组"画出来，比原来一整片发丝线列表更好扫。
+    //
+    // 全部设置仍然按"先常用、后进阶"排在同一条滚动里，选「全部」就是
+    // 一路往下滑看完整页。
     final Widget content = ListView(
-      key: const PageStorageKey<String>('settings'),
+      // 换分类时换 key = 列表回到顶部。否则上一栏滚到一半的位置会被
+      // 带到新栏目里，用户看到的是那一栏的**尾巴**，不像"切了分类"。
+      // 搜索不改 key：边打字边把列表拽回顶部会很难受。
+      key: PageStorageKey<String>('settings/$_category'),
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-      children: <Widget>[
-                // ---- 外观与字号 ----
-                ...[
-                  // 「工作方式」放在**字号之前**：
-                  //  · 它决定的是 AI 怎么说话、怎么动手，比字号重，
-                  //    排在外观项的最前面，进这一栏第一眼就能看到；
-                  //  · 但也不单独开一栏 —— 它只改三选一，撑不起一个
-                  //    分类目录（首页的分类是给"一大块设置"用的）。
-                  // 右侧直接写当前值，"我现在是什么模式"不用点进去看。
-                  _entryCard(
-                    s,
-                    icon: Icons.tune_rounded,
-                    title: '工作方式',
-                    desc: '学生 / 日常 / 程序员：决定 AI 怎么解释、怎么动手',
-                    trailingText: AssistantModePage.labelOf(
-                      widget.settings.assistantMode,
-                    ),
-                    onTap: () async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) =>
-                              AssistantModePage(settings: widget.settings),
+      children: _groupIntoCards(s, <Widget>[
+        // ---- 外观与字号 ----
+        ...[
+          _section(s, '外观'),
+          // 「工作方式」放在**字号之前**：
+          //  · 它决定的是 AI 怎么说话、怎么动手，比字号重，
+          //    排在外观项的最前面，进这一栏第一眼就能看到；
+          //  · 但也不单独开一栏 —— 它只改三选一，撑不起一个
+          //    分类目录（首页的分类是给"一大块设置"用的）。
+          // 右侧直接写当前值，"我现在是什么模式"不用点进去看。
+          _entryCard(
+            s,
+            icon: Icons.tune_rounded,
+            title: '工作方式',
+            desc: '学生 / 日常 / 程序员：决定 AI 怎么解释、怎么动手',
+            trailingText: AssistantModePage.labelOf(
+              widget.settings.assistantMode,
+            ),
+            onTap: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => AssistantModePage(settings: widget.settings),
+                ),
+              );
+              // 回来要刷新：右侧那句当前值是从 settings 读的，
+              // 不清一次 setState 就会一直显示进来之前的旧模式。
+              if (mounted) setState(() {});
+            },
+          ),
+          _themeColorCard(s),
+          _switchRow(
+            s,
+            label: '跟随系统壁纸',
+            desc:
+                'Android 12+ 用系统按壁纸推出的动态配色；'
+                '桌面和旧版本会自动回落到上面选的主题色。',
+            value: widget.settings.followSystemColor,
+            onChanged: (bool v) async {
+              await widget.settings.update(
+                () => widget.settings.followSystemColor = v,
+              );
+              if (mounted) setState(() {});
+            },
+          ),
+          _note(s, '主题色会生成整套 Material You 配色；字体与字号在下面。'),
+          _entryCard(
+            s,
+            icon: Icons.text_fields_rounded,
+            title: '字体',
+            desc:
+                '英文字体 / 中文字体 / 代码字体，各自一套，'
+                '也可以导入自己的 .ttf / .otf；字号也在这里。',
+            trailingText: _fontSummary(),
+            onTap: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (BuildContext _) =>
+                      FontSettingsPage(settings: widget.settings),
+                ),
+              );
+              if (mounted) setState(() {});
+            },
+          ),
+
+        ],
+
+        // ---- 模型设置 ----
+        ...<Widget>[
+          _section(s, '模型'),
+          _note(
+            s,
+            '先选在用的模型。下面的「思考」决定回答的深浅，'
+            '其余选项保持默认就能用。',
+          ),
+          // 模型的配置（地址 / 密钥 / 模型名 / 能力 / 工具）
+          // 已经整块搬到「模型」页面：那里能绑定多个模型并随时切换，
+          // 而设置页里那三个输入框在结构上只装得下一个模型。
+          //
+          // 这里保留的是**入口 + 当前状态**：用户进设置想干的事
+          // 通常就是"看看现在用的哪个 / 去改一下"。
+          _modelCard(s),
+
+          // 思考模式并入「接口与模型」—— 它也是"怎么用模型"的一部分，
+          // 单独一节会让设置页看起来比实际复杂
+          _switchRow(
+            s,
+            label: '开启思考模式',
+            desc:
+                '模型先输出一段思维链再作答。DeepSeek 默认开启。'
+                '注意：思考模式下 temperature、presence_penalty、'
+                'frequency_penalty 均不生效（官方说明「设置不报错但也不生效」）。',
+            value: _thinking,
+            onChanged: (bool v) => setState(() => _thinking = v),
+          ),
+          if (_thinking) ...<Widget>[
+            const SizedBox(height: 12),
+            Text(
+              '推理强度',
+              style: AppFonts.body(size: 12.8, color: s.muted, height: 1.3),
+            ),
+            const SizedBox(height: 8),
+            ...Settings.effortPresets.map(((String, String) e) {
+              final bool active = _effort == e.$1;
+              return _SettingRow(
+                padding: const EdgeInsets.fromLTRB(14, 11, 12, 11),
+                borderColor: active ? AppColors.accent : null,
+                onTap: () => setState(() => _effort = e.$1),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        e.$2,
+                        style: AppFonts.body(
+                          size: 13,
+                          color: s.text,
+                          height: 1.4,
                         ),
-                      );
-                      // 回来要刷新：右侧那句当前值是从 settings 读的，
-                      // 不清一次 setState 就会一直显示进来之前的旧模式。
-                      if (mounted) setState(() {});
-                    },
-                  ),
-                  _note(s, '界面配色是固定的；字号影响所有文字。'),
-                  _section(s, '字号'),
-                  _fontOptions(s),
-
-                  // ---- 模型列表显示多少信息：进阶项，默认收起 ----
-                  _foldHeader(
-                    s,
-                    title: '模型列表显示',
-                    icon: Icons.view_list_outlined,
-                    desc: '不确定就用默认。影响模型选择列表里显示多少说明',
-                    open: _uiAdvancedOpen,
-                    onTap: () =>
-                        setState(() => _uiAdvancedOpen = !_uiAdvancedOpen),
-                  ),
-                  if (_uiAdvancedOpen) ...<Widget>[
-                    for (final (String, String) opt in ModelChipInfo.options)
-                      _SettingRow(
-                          padding: const EdgeInsets.fromLTRB(14, 11, 12, 11),
-                          borderColor: widget.settings.modelChipInfo == opt.$1
-                              ? AppColors.accent
-                              : null,
-                          onTap: () {
-                            widget.settings.modelChipInfo = opt.$1;
-                            setState(() {});
-                          },
-                          child: Row(
-                            children: <Widget>[
-                              Expanded(
-                                child: Text(
-                                  opt.$2,
-                                  style: AppFonts.body(
-                                    size: 13,
-                                    color: s.text,
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ),
-                              if (widget.settings.modelChipInfo == opt.$1)
-                                Icon(
-                                  Icons.check_rounded,
-                                  size: 18,
-                                  color: AppColors.accent,
-                                ),
-                            ],
-                          ),
-                        ),
-                  ],
-                ],
-
-                // ---- 模型设置 ----
-                ...<Widget>[
-                  _note(
-                    s,
-                    '先选在用的模型。下面的「思考」决定回答的深浅，'
-                    '其余选项保持默认就能用。',
-                  ),
-                  _section(s, '模型'),
-                  // 模型的配置（地址 / 密钥 / 模型名 / 能力 / 工具）
-                  // 已经整块搬到「模型」页面：那里能绑定多个模型并随时切换，
-                  // 而设置页里那三个输入框在结构上只装得下一个模型。
-                  //
-                  // 这里保留的是**入口 + 当前状态**：用户进设置想干的事
-                  // 通常就是"看看现在用的哪个 / 去改一下"。
-                  _modelCard(s),
-
-                  // 思考模式并入「接口与模型」—— 它也是"怎么用模型"的一部分，
-                  // 单独一节会让设置页看起来比实际复杂
-                  _switchRow(
-                    s,
-                    label: '开启思考模式',
-                    desc:
-                        '模型先输出一段思维链再作答。DeepSeek 默认开启。'
-                        '注意：思考模式下 temperature、presence_penalty、'
-                        'frequency_penalty 均不生效（官方说明「设置不报错但也不生效」）。',
-                    value: _thinking,
-                    onChanged: (bool v) => setState(() => _thinking = v),
-                  ),
-                  if (_thinking) ...<Widget>[
-                    const SizedBox(height: 12),
-                    Text(
-                      '推理强度',
-                      style: AppFonts.body(
-                        size: 12.8,
-                        color: s.muted,
-                        height: 1.3,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    ...Settings.effortPresets.map(((String, String) e) {
-                      final bool active = _effort == e.$1;
-                      return _SettingRow(
-                          padding: const EdgeInsets.fromLTRB(14, 11, 12, 11),
-                          borderColor: active ? AppColors.accent : null,
-                          onTap: () => setState(() => _effort = e.$1),
-                          child: Row(
-                            children: <Widget>[
-                              Expanded(
-                                child: Text(
-                                  e.$2,
-                                  style: AppFonts.body(
-                                    size: 13,
-                                    color: s.text,
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ),
-                              Text(
-                                e.$1,
-                                style: AppFonts.code(size: 12, color: s.muted),
-                              ),
-                              if (active) ...<Widget>[
-                                const SizedBox(width: 8),
-                                Icon(
-                                  Icons.check_circle_rounded,
-                                  size: 17,
-                                  color: AppColors.accent,
-                                ),
-                              ],
-                            ],
-                          ),
-                        );
-                    }),
-                    Text(
-                      '官方映射：minimal/low → low，medium/high/xhigh → high，max/ultra → max。',
-                      style: AppFonts.body(
-                        size: 11.6,
-                        color: s.muted,
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
-
-                  const SizedBox(height: 14),
-                  _slider(
-                    s,
-                    label: '温度${_thinking ? '（思考模式下不生效）' : ''}',
-                    value: _temperature,
-                    min: 0,
-                    max: 2,
-                    divisions: 20,
-                    display: _temperature.toStringAsFixed(1),
-                    enabled: !_thinking,
-                    onChanged: (double v) => setState(() => _temperature = v),
-                  ),
-                  _foldHeader(
-                    s,
-                    title: '生图',
-                    icon: Icons.auto_awesome_outlined,
-                    desc: '想让它画图时再填，留空就是不启用',
-                    open: _modelImageOpen,
-                    onTap: () =>
-                        setState(() => _modelImageOpen = !_modelImageOpen),
-                  ),
-                  if (_modelImageOpen) ...<Widget>[
-                    // ---- 生图：只剩"用哪个模型名"这一项 ----
-                    //
-                    // 生图是**内置工具**（`generate_image`），所有模型都能调，
-                    // 不用在档案上开什么。这里只回答"发给哪个模型"——
-                    // 因为一个中转站常常一条档案、多个模型：地址和 Key 相同，
-                    // 对话用 `gpt-4o`、画图用 `gpt-image-2`。
-                    //
-                    // 地址和密钥不在这里配：档案里已经有，再选一遍是重复劳动。
-                    const SizedBox(height: 16),
-                    _field(
-                      s,
-                      label: '生图模型名（留空 = 不启用生图）',
-                      controller: _imageGenModel,
-                      hint: 'gpt-image-2 / dall-e-3 / flux-schnell ',
-                    ),
-                    _note(
-                      s,
-                      '走**标准**的 `POST {地址}/images/generations`（OpenAI 规范，'
-                      'DALL·E / gpt-image / FLUX / Kolors 都是这个形状），'
-                      '用**当前模型档案**的地址和密钥。\n'
-                      '工具本身**不用再开**：所有模型都能调 `generate_image`，'
-                      '填了模型名它就生效。\n'
-                      '尺寸不发 —— 各家支持的值不同，填错是 400，'
-                      '交给服务端按模型自己决定。',
-                    ),
-                  ],
-                  _foldHeader(
-                    s,
-                    title: '描述改进',
-                    icon: Icons.auto_fix_high_outlined,
-                    desc: '发消息前先把话改写清楚；不确定就别开',
-                    open: _modelImproveOpen,
-                    onTap: () =>
-                        setState(() => _modelImproveOpen = !_modelImproveOpen),
-                  ),
-                  if (_modelImproveOpen) ...<Widget>[
-                    // ---- 描述改进：档位 / 用哪个模型 / 自定义要求 ----
-                    //
-                    // 三样东西各管一件事，不能合并：
-                    //  · **档位** = 改写器能动多少（低：只把读不通的改到读得通；
-                    //    高：允许重写成一条结构化的任务描述）；
-                    //  · **模型** = 拿谁去改写。改写是"短、快、要稳"的活
-                    //    （它不做推理，只补指代），拿主模型去干纯属浪费 ——
-                    //    而且当前模型响应慢的话，每发一条消息都要多等它一次；
-                    //  · **自定义要求** = 用户本人对改写器的额外指令，
-                    //    优先级高于内置规则。
-                    const SizedBox(height: 18),
-                    Text(
-                      '描述改进',
-                      style: AppFonts.body(
-                        size: 12.8,
-                        weight: FontWeight.w600,
-                        color: s.muted,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    // 开关**这一节里也要有**。
-                    //
-                    // 配置项（力度 / 模型 / 自定义要求）全在眼前，却要退回
-                    // 输入框旁边才能把它打开 —— 那是设计上最容易让人放弃的
-                    // 一种：找得到旋钮，找不到开关。
-                    // 模型选择器里那个保留：那是"发消息前顺手调"的位置。
-                    _switchRow(
-                      s,
-                      label: '发消息前先改进描述',
-                      desc:
-                          '打开后，你的原话会先被改写成更清楚的任务描述，'
-                          '再把**改写版**交给模型执行。适合"帮我看看那个文件"'
-                          '这类省略了指代的说法。\n'
-                          '代价：每次多一次往返（一两秒）。原话仍然完整显示在'
-                          '消息里，改写版折在它下面，随时可以核对。',
-                      value: _improvePrompt,
-                      onChanged: (bool v) => setState(() => _improvePrompt = v),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '下面三项决定**它怎么改**。'
-                      '（输入框旁的模型选择器里也能开关。）',
-                      style: AppFonts.body(
-                        size: 12,
-                        color: s.muted,
-                        height: 1.5,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      children: <Widget>[
-                        for (final (String, String, String) lv
-                            in <(String, String, String)>[
-                              ('low', '低 · 最小改动', '只在指代不清、动作含糊时动手，句子结构和用词保持原样'),
-                              ('medium', '中 · 默认', '补全指代、说明意图、去掉口语噪声，仍然保持一句话'),
-                              (
-                                'high',
-                                '高 · 写成任务描述',
-                                '允许重写成结构化的任务说明（目标 / 约束 / 产出），缺的信息留成待确认项',
-                              ),
-                            ])
-                          ChoiceChip(
-                            // **选中态必须显式给白字。**
-                            //
-                            // 芯片的选中底色是强调蓝，而 `ChipThemeData.labelStyle`
-                            // 给的是正文色（近黑）—— 蓝底配黑字对比度只有 3.0:1，
-                            // 三个按钮里选中的那个反而最看不清。
-                            // 这不是"调淡一点"能解决的，是两个色角色没对上：
-                            // 底色换了，字色就得跟着换。
-                            label: Text(lv.$2),
-                            labelStyle: AppFonts.body(
-                              size: 12,
-                              color: _improveLevel == lv.$1
-                                  ? AppColors.onAccent
-                                  : s.text,
-                              weight: _improveLevel == lv.$1
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                            ),
-                            selected: _improveLevel == lv.$1,
-                            onSelected: (_) =>
-                                setState(() => _improveLevel = lv.$1),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      switch (_improveLevel) {
-                        'low' => '低：最不容易改变你的原意，但只能修掉"读不通"的地方。',
-                        'high' =>
-                          '高：改动最大，会补出结构；适合"我懒得写需求，'
-                              '你先帮我理清楚"。代价是它可能补出你没说过的细节 —— '
-                              '所以改写结果会在原话下面折叠显示，发之前能核对。',
-                        _ => '中：默认档位。多数情况下"补全指代 + 说明意图"就够了。',
-                      },
-                      style: AppFonts.body(
-                        size: 11.6,
-                        color: s.muted,
-                        height: 1.5,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _field(
-                      s,
-                      label: '改进用的模型名（留空 = 用当前对话模型）',
-                      controller: _improveModel,
-                      hint: 'deepseek-flash / gpt-4o-mini ',
-                    ),
-                    _field(
-                      s,
-                      label: '自定义改进要求（可选，优先级最高）',
-                      controller: _improveInstruction,
-                      hint: '例如：把所有代词换成具体的名字；按分点输出',
-                    ),
-                    _note(
-                      s,
-                      '自定义要求会**原样追加**给改写器，并明确告诉它"这条优先于'
-                      '上面所有规则"。写自己的习惯就行，比如"我说话很省略，'
-                      '帮我补成完整句子"。\n'
-                      '改写用的地址和密钥沿用当前档案；改写失败或结果不像话时'
-                      '**自动退回你的原话**，不会因为它出问题就发不出消息。',
-                    ),
-                  ],
-                  _foldHeader(
-                    s,
-                    title: '输入建议',
-                    icon: Icons.lightbulb_outline_rounded,
-                    desc: '输入框上方给可点的建议；会多一次短调用',
-                    open: _modelSuggestOpen,
-                    onTap: () =>
-                        setState(() => _modelSuggestOpen = !_modelSuggestOpen),
-                  ),
-                  if (_modelSuggestOpen) ...<Widget>[
-                    // ---- 输入建议 ----
-                    //
-                    // 两块：图片一挂上来就解析，给出"这道题怎么写 / 这是什么"
-                    // 这类可点的建议；以及根据上下文揣测下一句。
-                    // 都走一次**很短**的模型请求，所以给独立的开关、模型和
-                    // 思考强度 —— 不该跟主对话模型绑死。
-                    const SizedBox(height: 18),
-                    Text(
-                      '输入建议',
-                      style: AppFonts.body(
-                        size: 12.8,
-                        weight: FontWeight.w600,
-                        color: s.muted,
-                      ),
-                    ),
-                    _switchRow(
-                      s,
-                      label: '在输入框上方给建议',
-                      desc:
-                          '发图片时先解析图片，给出「这道题怎么写」「这是什么」\n'
-                          '根据最近几轮对话，揣测你接下来可能想说什么\n'
-                          '建议只是可点的气泡，点了才填入输入框，不会替你发送',
-                      value: _inputSuggest,
-                      onChanged: (bool v) => setState(() => _inputSuggest = v),
-                    ),
-                    if (_inputSuggest) ...<Widget>[
-                      _entryCard(
-                        s,
-                        icon: Icons.auto_awesome_outlined,
-                        title: '建议用的模型',
-                        desc: _suggestProfileLabel(),
-                        onTap: _pickSuggestProfile,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '建议的思考强度',
-                        style: AppFonts.body(size: 12.5, color: s.muted),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        children: <Widget>[
-                          for (final (int, String) e in const <(int, String)>[
-                            (0, '关闭'),
-                            (1, '低'),
-                            (2, '高'),
-                            (3, '最高'),
-                          ])
-                            ChoiceChip(
-                              label: Text(e.$2),
-                              selected: _inputSuggestEffort == e.$1,
-                              labelStyle: AppFonts.body(
-                                size: 12,
-                                color: _inputSuggestEffort == e.$1
-                                    ? AppColors.onAccent
-                                    : s.text,
-                              ),
-                              onSelected: (_) =>
-                                  setState(() => _inputSuggestEffort = e.$1),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      _note(
-                        s,
-                        '建议会消耗一次很短的模型调用（图片解析那次除外）。'
-                        '选一个便宜、快的模型更合适；把强度设为「关闭」可以再省一点。',
+                    Text(e.$1, style: AppFonts.code(size: 12, color: s.muted)),
+                    if (active) ...<Widget>[
+                      const SizedBox(width: 8),
+                      Icon(
+                        Icons.check_circle_rounded,
+                        size: 17,
+                        color: AppColors.accent,
                       ),
                     ],
                   ],
-                  _foldHeader(
-                    s,
-                    title: '工具调用次数',
-                    icon: Icons.build_outlined,
-                    desc: '复杂任务被中途停住时才来调',
-                    open: _modelRoundsOpen,
-                    onTap: () =>
-                        setState(() => _modelRoundsOpen = !_modelRoundsOpen),
+                ),
+              );
+            }),
+            Text(
+              '官方映射：minimal/low → low，medium/high/xhigh → high，max/ultra → max。',
+              style: AppFonts.body(size: 11.6, color: s.muted, height: 1.5),
+            ),
+          ],
+
+          const SizedBox(height: 14),
+          _slider(
+            s,
+            label: '温度${_thinking ? '（思考模式下不生效）' : ''}',
+            value: _temperature,
+            min: 0,
+            max: 2,
+            divisions: 20,
+            display: _temperature.toStringAsFixed(1),
+            enabled: !_thinking,
+            onChanged: (double v) => setState(() => _temperature = v),
+          ),
+          _foldHeader(
+            s,
+            title: '生图',
+            icon: Icons.auto_awesome_outlined,
+            desc: '想让它画图时再填，留空就是不启用',
+            open: _modelImageOpen,
+            onTap: () => setState(() => _modelImageOpen = !_modelImageOpen),
+          ),
+          if (_modelImageOpen) ...<Widget>[
+            // ---- 生图：只剩"用哪个模型名"这一项 ----
+            //
+            // 生图是**内置工具**（`generate_image`），所有模型都能调，
+            // 不用在档案上开什么。这里只回答"发给哪个模型"——
+            // 因为一个中转站常常一条档案、多个模型：地址和 Key 相同，
+            // 对话用 `gpt-4o`、画图用 `gpt-image-2`。
+            //
+            // 地址和密钥不在这里配：档案里已经有，再选一遍是重复劳动。
+            const SizedBox(height: 16),
+            _field(
+              s,
+              label: '生图模型名（留空 = 不启用生图）',
+              controller: _imageGenModel,
+              hint: 'gpt-image-2 / dall-e-3 / flux-schnell ',
+            ),
+            _note(
+              s,
+              '走**标准**的 `POST {地址}/images/generations`（OpenAI 规范，'
+              'DALL·E / gpt-image / FLUX / Kolors 都是这个形状），'
+              '用**当前模型档案**的地址和密钥。\n'
+              '工具本身**不用再开**：所有模型都能调 `generate_image`，'
+              '填了模型名它就生效。\n'
+              '尺寸不发 —— 各家支持的值不同，填错是 400，'
+              '交给服务端按模型自己决定。',
+            ),
+          ],
+          _foldHeader(
+            s,
+            title: '描述改进',
+            icon: Icons.auto_fix_high_outlined,
+            desc: '发消息前先把话改写清楚；不确定就别开',
+            open: _modelImproveOpen,
+            onTap: () => setState(() => _modelImproveOpen = !_modelImproveOpen),
+          ),
+          if (_modelImproveOpen) ...<Widget>[
+            // ---- 描述改进：档位 / 用哪个模型 / 自定义要求 ----
+            //
+            // 三样东西各管一件事，不能合并：
+            //  · **档位** = 改写器能动多少（低：只把读不通的改到读得通；
+            //    高：允许重写成一条结构化的任务描述）；
+            //  · **模型** = 拿谁去改写。改写是"短、快、要稳"的活
+            //    （它不做推理，只补指代），拿主模型去干纯属浪费 ——
+            //    而且当前模型响应慢的话，每发一条消息都要多等它一次；
+            //  · **自定义要求** = 用户本人对改写器的额外指令，
+            //    优先级高于内置规则。
+            const SizedBox(height: 18),
+            Text(
+              '描述改进',
+              style: AppFonts.body(
+                size: 12.8,
+                weight: FontWeight.w600,
+                color: s.muted,
+              ),
+            ),
+            const SizedBox(height: 6),
+            // 开关**这一节里也要有**。
+            //
+            // 配置项（力度 / 模型 / 自定义要求）全在眼前，却要退回
+            // 输入框旁边才能把它打开 —— 那是设计上最容易让人放弃的
+            // 一种：找得到旋钮，找不到开关。
+            // 模型选择器里那个保留：那是"发消息前顺手调"的位置。
+            _switchRow(
+              s,
+              label: '发消息前先改进描述',
+              desc:
+                  '打开后，你的原话会先被改写成更清楚的任务描述，'
+                  '再把**改写版**交给模型执行。适合"帮我看看那个文件"'
+                  '这类省略了指代的说法。\n'
+                  '代价：每次多一次往返（一两秒）。原话仍然完整显示在'
+                  '消息里，改写版折在它下面，随时可以核对。',
+              value: _improvePrompt,
+              onChanged: (bool v) => setState(() => _improvePrompt = v),
+            ),
+          const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              children: <Widget>[
+                for (final (String, String, String) lv
+                    in <(String, String, String)>[
+                      ('low', '低 · 最小改动', '只在指代不清、动作含糊时动手，句子结构和用词保持原样'),
+                      ('medium', '中 · 默认', '补全指代、说明意图、去掉口语噪声，仍然保持一句话'),
+                      (
+                        'high',
+                        '高 · 写成任务描述',
+                        '允许重写成结构化的任务说明（目标 / 约束 / 产出），缺的信息留成待确认项',
+                      ),
+                    ])
+                  ChoiceChip(
+                    // **选中态必须显式给白字。**
+                    //
+                    // 芯片的选中底色是强调蓝，而 `ChipThemeData.labelStyle`
+                    // 给的是正文色（近黑）—— 蓝底配黑字对比度只有 3.0:1，
+                    // 三个按钮里选中的那个反而最看不清。
+                    // 这不是"调淡一点"能解决的，是两个色角色没对上：
+                    // 底色换了，字色就得跟着换。
+                    label: Text(lv.$2),
+                    labelStyle: AppFonts.body(
+                      size: 12,
+                      color: _improveLevel == lv.$1
+                          ? AppColors.onAccent
+                          : s.text,
+                      weight: _improveLevel == lv.$1
+                          ? FontWeight.w600
+                          : FontWeight.w400,
+                    ),
+                    selected: _improveLevel == lv.$1,
+                    onSelected: (_) => setState(() => _improveLevel = lv.$1),
                   ),
-                  if (_modelRoundsOpen) ...<Widget>[
-                    // ---- 单轮工具调用次数 ----
-                    //
-                    // 「不设限」= `maxToolRounds = 0`（见 Settings 里那一段）。
-                    // 为什么要有这个选项：复杂任务要几轮根本估不准，而被
-                    // 硬停住的代价比多花点 token 大得多 —— 模型不会说
-                    // "我被限制了"，它只会含糊地总结一下，用户看到的是
-                    // "它好像没做完"，还找不到原因。
-                    _switchRow(
-                      s,
-                      label: '工具调用不设限',
-                      desc:
-                          '关着的时候最多跑 ${Settings.maxToolRoundsCeiling} 轮。'
-                          '复杂任务（批量处理文件、多轮搜索核对）中途被停住时，'
-                          '模型不会说自己被限制了，只会含糊地收尾 —— '
-                          '打开这一项让它自己做判断。随时可以点停止键中断。',
-                      value: _maxRounds <= 0,
-                      onChanged: (bool v) =>
-                          setState(() => _maxRounds = v ? 0 : 100),
-                    ),
-                    if (_maxRounds > 0)
-                      _slider(
-                        s,
-                        label: '单轮最多工具调用次数',
-                        value: _maxRounds.toDouble().clamp(
-                          1,
-                          Settings.maxToolRoundsCeiling.toDouble(),
-                        ),
-                        min: 1,
-                        // 上限跟着 `Settings.maxToolRoundsCeiling` 走：
-                        // value 越界时 Slider 会直接断言失败、整页崩掉，
-                        // 所以这里和设置里的默认值必须同源。
-                        max: Settings.maxToolRoundsCeiling.toDouble(),
-                        divisions: Settings.maxToolRoundsCeiling - 1,
-                        display: '$_maxRounds 次',
-                        onChanged: (double v) =>
-                            setState(() => _maxRounds = v.round()),
-                      ),
-                  ],
-                ],
-
-                // ---- 联网设置 ----
-                ...<Widget>[
-                  _note(s, '搜索通道、结果条数、识图模型'),
-                  _section(s, '搜索与抓取'),
-                  // ---- 抓网页用哪套 UA ----
-                  //
-                  // 同样的地址，手机版和桌面版常常是两份内容：
-                  // 手机版把正文砍短、要点"展开全文"，桌面版是完整的。
-                  // 抓资料时后者经常更好用，但**不该替他猜** —— 做成开关。
-                  _switchRow(
-                    s,
-                    label: '抓网页时使用桌面版',
-                    desc:
-                        '关着＝按手机网页抓（默认）。\n'
-                        '打开后按桌面站抓：一部分站点的正文只在桌面版才完整，'
-                        '抓回来的资料更全；代价是少数站点会因此给出"电脑版"的更宽布局。',
-                    value: _desktopUa,
-                    onChanged: (bool v) => setState(() {
-                      _desktopUa = v;
-                      // 立刻生效：下一次抓取就用新 UA。
-                      WebViewLoader.useDesktopUa = v;
-                    }),
-                  ),
-                  Text(
-                    '联网方式',
-                    style: AppFonts.body(
-                      size: 12.8,
-                      color: s.muted,
-                      height: 1.3,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  ...Settings.searchModePresets.map(((String, String) m) {
-                    final bool active = _searchMode == m.$1;
-                    return _SettingRow(
-                        padding: const EdgeInsets.fromLTRB(14, 11, 12, 11),
-                        borderColor: active ? AppColors.accent : null,
-                        onTap: () => setState(() => _searchMode = m.$1),
-                        child: Row(
-                          children: <Widget>[
-                            Expanded(
-                              child: Text(
-                                m.$2,
-                                style: AppFonts.body(
-                                  size: 13,
-                                  color: s.text,
-                                  height: 1.4,
-                                ),
-                              ),
-                            ),
-                            if (active)
-                              Icon(
-                                Icons.check_circle_rounded,
-                                size: 17,
-                                color: AppColors.accent,
-                              ),
-                          ],
-                        ),
-                      );
-                  }),
-                  const SizedBox(height: 6),
-                  Text(
-                    '浏览器抓取使用的搜索引擎',
-                    style: AppFonts.body(
-                      size: 12.8,
-                      color: s.muted,
-                      height: 1.3,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: SearchEngine.all.map((SearchEngine e) {
-                      final bool active = _engine == e.id;
-                      return _SettingRow(
-                        // 胶囊不是列表行：没有底部分隔线。
-                        divider: false,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 9,
-                        ),
-                        borderColor: active ? AppColors.accent : null,
-                        onTap: () => setState(() => _engine = e.id),
-                        child: Text(
-                          e.label,
-                          style: AppFonts.body(
-                            size: 13,
-                            weight: FontWeight.w600,
-                            color: active ? AppColors.accent : s.text,
-                            height: 1.2,
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  _foldHeader(
-                    s,
-                    title: '接口与识图',
-                    icon: Icons.visibility_outlined,
-                    desc: 'Tavily Key、直连通道、视觉模型；留空就复用主模型',
-                    open: _netAdvancedOpen,
-                    onTap: () =>
-                        setState(() => _netAdvancedOpen = !_netAdvancedOpen),
-                  ),
-                  if (_netAdvancedOpen) ...<Widget>[
-                    _field(
-                      s,
-                      label: 'Tavily API Key（可选）',
-                      controller: _searchKey,
-                      hint: '填了会优先用 Tavily，结果更完整',
-                    ),
-
-                    const SizedBox(height: 14),
-                    Text(
-                      '「+」面板里搜索走哪条通道',
-                      style: AppFonts.body(
-                        size: 12.8,
-                        color: s.muted,
-                        height: 1.3,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    // 这两条是**直连**通道（不走内置浏览器），所以它们在
-                    // 国内网络下的可用性和上面的"浏览器引擎"完全不是一回事：
-                    // 浏览器那条是拿系统 WebView 去抓，通用但慢；
-                    // 这两条是直接请求接口，快，但可能被墙/被限流。
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: WebSearchSource.all.map((WebSearchSource src) {
-                        final bool active = _webEngine == src.id;
-                        return _SettingRow(
-                          // 同上：胶囊不画分隔线。
-                          divider: false,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 9,
-                          ),
-                          borderColor: active ? AppColors.accent : null,
-                          onTap: () => setState(() => _webEngine = src.id),
-                          child: Text(
-                            src.label,
-                            style: AppFonts.body(
-                              size: 13,
-                              weight: FontWeight.w600,
-                              color: active ? AppColors.accent : s.text,
-                              height: 1.2,
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 6),
-                    _note(
-                      s,
-                      'Bing RSS 走 `search?format=rss`，国内可达而且结构稳定；'
-                      'DuckDuckGo 走 lite 页，结果质量通常更好但国内经常连不上。'
-                      '**首选失败会自动改用另一条**，所以选哪个都不会搜不到。',
-                    ),
-
-                    // 识图收在这一组：视觉模型同样是"选一个外部服务"
-                    _note(
-                      s,
-                      '识图流程：screen_capture 截图 → read_image 把图片交给模型。'
-                      '当前模型勾了「支持图像理解」就直接用它；'
-                      '没勾会用同一套地址和密钥试一次这里的视觉模型（默认 deepseek-flash），'
-                      '都失败才降级为本地 OCR。'
-                      '下面三项**留空就复用主模型**，只填其中一两项也可以。',
-                    ),
-                    _field(
-                      s,
-                      label: '视觉接口地址（可选，覆盖主模型）',
-                      controller: _visionUrl,
-                      hint: '留空则复用主模型的地址',
-                    ),
-                    _field(
-                      s,
-                      label: '视觉 API Key（可选）',
-                      controller: _visionKey,
-                      hint: '留空则复用主模型的 Key',
-                      obscure: true,
-                    ),
-                    _field(
-                      s,
-                      label: '视觉模型（可选）',
-                      controller: _visionModel,
-                      hint: '留空则用 deepseek-flash',
-                    ),
-                  ],
-                ],
-
-                // ---- 开发者选项 ----
-                //
-                // 从前这里是一张入口卡（"高级设置" → 再点"开发者选项"）。
-                // 现在所有区块平铺，这一节直接出现；[_section] 就是它的标题。
-                ...<Widget>[
-                    _section(s, '开发者选项'),
-                    _note(
-                      s,
-                      '这些是排障工具，不是功能开关。打开之后，'
-                      '对话页的「性能」面板会多出一页「耗时明细」：'
-                      '把每一轮的模型思考、工具执行、以及它们之外的等待时间全列出来，'
-                      '并且可以导出成 log 文本。',
-                    ),
-                    _switchRow(
-                      s,
-                      label: '启用开发者选项',
-                      desc:
-                          '打开后性能面板会多出「耗时明细」页。'
-                          '关掉只是藏起入口，已记录的耗时不会被删。',
-                      value: widget.settings.developerMode,
-                      onChanged: (bool v) async {
-                        await widget.settings.update(
-                          () => widget.settings.developerMode = v,
-                        );
-                        if (mounted) setState(() {});
-                      },
-                    ),
-                    if (widget.settings.developerMode) ...<Widget>[
-                      _switchRow(
-                        s,
-                        label: '逐轮列出',
-                        desc:
-                            '默认只给汇总。长对话里逐轮明细会有几百行，'
-                            '只在"第 12 轮为什么这么慢"时才需要打开。',
-                        value: widget.settings.showPerTurnTimings,
-                        onChanged: (bool v) async {
-                          await widget.settings.update(
-                            () => widget.settings.showPerTurnTimings = v,
-                          );
-                          if (mounted) setState(() {});
-                        },
-                      ),
-                      _note(
-                        s,
-                        '怎么看：对话页右上角「性能」→「耗时明细」。'
-                        '那里有一条堆叠比例条（思考 / 工具 / 等待各占多少），'
-                        '数字和百分比都在下面。',
-                      ),
-                      _note(
-                        s,
-                        '导出：在「耗时明细」页底部。可以复制到剪贴板'
-                        '（直接粘进反馈里），或者存成 .txt 到手机「下载」目录。',
-                      ),
-                    ],
-                ],
-
-                // ---- 内容尺度与实验 ----
-                ...<Widget>[
-                    _section(s, '内容尺度'),
-                    _entryCard(
-                      s,
-                      icon: Icons.shield_moon_outlined,
-                      title: 'TeenSpace',
-                      desc: '成人内容 / 政治议题 / 题目查询的回答尺度',
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (BuildContext _) =>
-                              TeenSpacePage(settings: widget.settings),
-                        ),
-                      ),
-                    ),
-                    // ---- 实验与未完成 ----
-                    //
-                    // 原来这一整块叫「更多」，是个垃圾桶分类：未实现的功能、
-                    // 内容尺度、存储位置、能力扩展全堆在一起。用户扫一眼
-                    // 找不到任何规律 —— 那正是"设置没有逻辑关系"的来源。
-                    //
-                    // 现在按**功能性质**拆成四组，顺序也是"越常用越靠前"。
-                    _section(s, '实验功能'),
-                    _entryCard(
-                      s,
-                      icon: Icons.desktop_windows_outlined,
-                      title: '远程控制',
-                      desc: '从电脑浏览器操作这台手机 —— **尚未实现**，先占位',
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (BuildContext _) => const RemotePage(),
-                        ),
-                      ),
-                    ),
-                ],
-
-                // ---- 存储与权限 ----
-                ...<Widget>[
-                    _section(s, '存储与权限'),
-                    //
-                    // ---- 密码与安全 ----
-                    //
-                    // 放在「工具」之前：它是**总开关级别**的东西，工具是内容。
-                    _entryCard(
-                      s,
-                      icon: Icons.lock_outline_rounded,
-                      title: '密码与安全',
-                      desc:
-                          '设置密码并选择保护范围：设置、笔记、计划、记忆、'
-                          '规则、工具、敏感权限，以及打开应用。支持指纹 / 面部。',
-                      trailingText: (appLock?.hasPassword ?? false)
-                          ? '已启用'
-                          : '未设置',
-                      onTap: () async {
-                        final LockStore? lock = appLock;
-                        if (lock == null) return;
-                        if (!await ensureUnlocked(
-                          context,
-                          LockScope.settings,
-                        )) {
-                          return;
-                        }
-                        if (!context.mounted) return;
-                        await Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (BuildContext _) =>
-                                LockSettingsPage(store: lock),
-                          ),
-                        );
-                        if (context.mounted) setState(() {});
-                      },
-                    ),
-                    _entryCard(
-                      s,
-                      icon: Icons.folder_copy_outlined,
-                      title: '工具',
-                      desc:
-                          '文件夹式的成套做法：`tool.md` 写怎么做，'
-                          '旁边可以放脚本和模板。模型按需取用。',
-                      trailingText: FolderToolStore.instance.tools.isEmpty
-                          ? '还没有'
-                          : '${FolderToolStore.instance.tools.length} 个',
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (BuildContext _) => const ToolsPage(),
-                        ),
-                      ),
-                    ),
-
-                    // ---- 终端 ----
-                    //
-                    // 入口在这里，是因为聊天页那个终端图标**只在命令跑着时
-                    // 出现**（空闲时它没有信息量，还占地方）。
-                    // 所以不跑命令的时候，这个入口是用户能找到终端页的唯一路径。
-                    //
-                    // 终端用的是**应用自带的 Alpine Linux**（proot + rootfs
-                    // 都在 APK 里），不需要装 Termux、也不用改设置。
-                    _entryCard(
-                      s,
-                      icon: Icons.terminal_rounded,
-                      title: '终端',
-                      desc:
-                          '自带一套 Alpine Linux（proot），不用装 Termux。'
-                          '可以看 agent 跑过什么命令，也可以自己敲。',
-                      trailingText: LinuxService.instance.installed
-                          ? '已安装'
-                          : '未安装',
-                      onTap: () => openTerminal(context),
-                    ),
-                ],
-
-                // ---- 数据与备份 ----
-                ...<Widget>[
-                    _section(s, '数据与备份'),
-                    _entryCard(
-                      s,
-                      icon: Icons.gavel_rounded,
-                      title: 'Agent.md',
-                      desc: '最高优先级规范：写法、术语、交付格式。冲突时以它为准',
-                      trailingText: AgentDocStore.instance.isEmpty
-                          ? '未设置'
-                          : '${AgentDocStore.instance.text.length} 字',
-                      onTap: () async {
-                        await Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (BuildContext _) => AgentMdPage(
-                              store: AgentDocStore.instance,
-                            ),
-                          ),
-                        );
-                        if (context.mounted) setState(() {});
-                      },
-                    ),
-                    _entryCard(
-                      s,
-                      icon: Icons.rule_folder_outlined,
-                      title: '自定义规则',
-                      desc: '当的时候，就 —— 用自己的话规定 Agent 的行为',
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (BuildContext _) =>
-                              RulesPage(store: RuleStore.instance),
-                        ),
-                      ),
-                    ),
-                    _entryCard(
-                      s,
-                      icon: Icons.terminal_rounded,
-                      title: 'Python 控制台',
-                      desc: '内嵌 CPython 3.13，零配置。在这里直接跑代码验证它是否可用',
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (BuildContext _) =>
-                              const PythonConsolePage(),
-                        ),
-                      ),
-                    ),
-                    _entryCard(
-                      s,
-                      icon: Icons.extension_outlined,
-                      title: '插件',
-                      desc: '自定义工具：声明参数和命令模板，给 Agent 加能力',
-                      onTap: () => showPluginsSheet(
-                        context,
-                        store: widget.plugins,
-                        builtinNames: <String>{
-                          'run_shell',
-                          'app_manage',
-                          'file_op',
-                          'system_settings',
-                          'screen_capture',
-                          'web',
-                          'browser',
-                          'read_image',
-                          'notes',
-                          'tasks',
-                        },
-                      ),
-                    ),
-                    _entryCard(
-                      s,
-                      icon: Icons.menu_book_outlined,
-                      title: '知识库',
-                      desc: '真 RAG：导入文档 → 切片 → 向量检索 → 带出处回答',
-                      trailingText: KnowledgeStore.maybeInstance == null
-                          ? null
-                          : '${KnowledgeStore.instance.bases.length} 个',
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (BuildContext _) =>
-                              KnowledgePage(settings: widget.settings),
-                        ),
-                      ),
-                    ),
-                    _entryCard(
-                      s,
-                      icon: Icons.hub_outlined,
-                      title: 'MCP 服务器',
-                      desc: '接入外部 MCP 服务：连上就能把它的工具交给 AI 调用',
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (BuildContext _) => const McpPage(),
-                        ),
-                      ),
-                    ),
-                    _entryCard(
-                      s,
-                      icon: Icons.ios_share_rounded,
-                      title: '导出备份',
-                      desc: '会话、笔记、任务、插件和设置（API Key 默认不含）',
-                      onTap: () async {
-                        final String? msg = await BackupActions.export(
-                          context,
-                          settings: widget.settings,
-                          conversations: widget.conversations,
-                          notes: widget.notes,
-                          tasks: widget.tasks,
-                          plugins: widget.plugins,
-                        );
-                        if (msg != null && context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(msg),
-                              duration: const Duration(seconds: 4),
-                            ),
-                          );
-                        }
-                      },
-                    ),
-                    _entryCard(
-                      s,
-                      icon: Icons.download_rounded,
-                      title: '导入备份',
-                      desc: '从 JSON 备份恢复，可选合并或覆盖',
-                      onTap: () async {
-                        final String? msg = await BackupActions.import(
-                          context,
-                          settings: widget.settings,
-                          conversations: widget.conversations,
-                          notes: widget.notes,
-                          tasks: widget.tasks,
-                          plugins: widget.plugins,
-                        );
-                        if (msg != null && context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(msg),
-                              duration: const Duration(seconds: 4),
-                            ),
-                          );
-                        }
-                      },
-                    ),
-
-                    // 存储并入「数据与扩展」—— 插件、导入导出、存储清理
-                    // 都是"数据从哪来、往哪去"，归到一起更好找
-                    _SettingRow(
-                      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
-                      onTap: () =>
-                          showStorageSheet(context, workDir: widget.workDir),
-                      child: Row(
-                        children: <Widget>[
-                          Icon(
-                            Icons.folder_outlined,
-                            size: 18,
-                            color: AppColors.accent,
-                          ),
-                          const SizedBox(width: 11),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: <Widget>[
-                                Text(
-                                  '管理存储空间',
-                                  style: AppFonts.body(
-                                    size: 14,
-                                    weight: FontWeight.w600,
-                                    color: s.text,
-                                    height: 1.3,
-                                  ),
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  '查看并清理截图、录屏和聊天附件',
-                                  style: AppFonts.body(
-                                    size: 12,
-                                    color: s.muted,
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Icon(
-                            Icons.chevron_right_rounded,
-                            size: 20,
-                            color: s.muted,
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-
-                // ---- 记忆与自学习 ----
-                ...<Widget>[
-                    _section(s, '上下文'),
-                    // ---- 压缩时机：三选一 ----
-                    //
-                    // 原来是一个开关（开 = 每轮都压）。开关的问题是它只回答
-                    // "压不压"，回答不了"什么时候压" —— 而后者才是用户真正
-                    // 在意的那件事：多数会话离上下文上限很远，每轮都压
-                    // 等于白付一份有损的代价。
-                    //
-                    // 现在拆成三档，一眼能看出区别：
-                    //  · 每轮压缩 —— 原来的行为，最省 token，也最损原文；
-                    //  · 80% 压缩 —— 宽裕时给全文，吃紧了再压（推荐）；
-                    //  · 不压缩 —— 核对输出、复现报错时用。
-                    for (final (String id, String title, String desc)
-                        in const <(String, String, String)>[
-                          (
-                            'every',
-                            '每轮压缩',
-                            '每次发请求前都压一遍较早的工具输出。最省 token，'
-                                '但模型回看旧输出时看到的已经是摘要。',
-                          ),
-                          (
-                            'ratio',
-                            '80% 压缩',
-                            '用量到上下文上限的 80% 才开始压。宽裕时给模型看完整原文，'
-                                '吃紧时自动收紧。',
-                          ),
-                          (
-                            'off',
-                            '不压缩',
-                            '原样发送。需要模型精确回看某段工具原文时用，'
-                                '代价是更容易撞上限。',
-                          ),
-                        ])
-                      _SettingRow(
-                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-                        onTap: () async {
-                          await widget.settings.update(
-                            () => widget.settings.compressMode = id,
-                          );
-                          if (mounted) setState(() {});
-                        },
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: <Widget>[
-                                  Text(
-                                    title,
-                                    style: AppFonts.body(
-                                      size: 14.5,
-                                      weight:
-                                          widget.settings.compressMode == id
-                                          ? FontWeight.w600
-                                          : FontWeight.w400,
-                                      color: s.text,
-                                      height: 1.3,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    desc,
-                                    style: AppFonts.body(
-                                      size: 12,
-                                      color: s.muted,
-                                      height: 1.45,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            if (widget.settings.compressMode == id)
-                              Icon(
-                                Icons.check_rounded,
-                                size: 18,
-                                color: AppColors.accent,
-                              ),
-                          ],
-                        ),
-                      ),
-                    if (widget.settings.compressContext)
-                      _stepperRow(
-                        s,
-                        label: '保留最近几轮全文',
-                        desc: '数值越大越保守，越不压。',
-                        value: widget.settings.compressKeepTurns,
-                        min: 1,
-                        max: 10,
-                        onChanged: (int v) async {
-                          await widget.settings.update(
-                            () => widget.settings.compressKeepTurns = v,
-                          );
-                          if (mounted) setState(() {});
-                        },
-                      ),
-                    _section(s, '记忆'),
-                    _switchRow(
-                      s,
-                      label: '启用记忆',
-                      desc: '关闭后记忆不再注入对话，但不会被删除',
-                      value: widget.settings.memoryEnabled,
-                      onChanged: (bool v) async {
-                        await widget.settings.update(
-                          () => widget.settings.memoryEnabled = v,
-                        );
-                        if (mounted) setState(() {});
-                      },
-                    ),
-                    _switchRow(
-                      s,
-                      label: '跨聊天记忆',
-                      desc:
-                          'AI 能看到其他对话的摘要，需要时用 recall 检索原话。'
-                          '只读，不会修改任何对话；关闭后立即停止注入和检索。',
-                      value: widget.settings.crossChatMemory,
-                      onChanged: (bool v) async {
-                        await widget.settings.update(
-                          () => widget.settings.crossChatMemory = v,
-                        );
-                        if (mounted) setState(() {});
-                      },
-                    ),
-                    _entryCard(
-                      s,
-                      icon: Icons.psychology_outlined,
-                      title: '管理记忆',
-                      desc: '查看记住了什么、逐条删除、清空全部',
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (BuildContext _) =>
-                              MemoryPage(store: MemoryStore.instance),
-                        ),
-                      ),
-                    ),
-                    _entryCard(
-                      s,
-                      icon: Icons.forum_outlined,
-                      title: '可回忆的对话',
-                      desc: '看看 AI 能读到的其他对话（只读，不会修改）',
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (BuildContext _) => ChatMemoryPage(
-                            currentId: widget.conversations.currentId ?? '',
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // ---- 自学习 ----
-                    //
-                    // 和「记忆」并排，但方向相反：记忆是 agent 记**用户**的事，
-                    // 自学习是 agent 记**自己**的事（走过的弯路、犯过的错、
-                    // 学会的技能）。所以这里没有"手动添加"，只有查看和删除。
-                    _section(s, '自学习'),
-                    _switchRow(
-                      s,
-                      label: '启用自学习',
-                      desc:
-                          'AI 会把自己走过的弯路、犯过的错、学到的技能写进笔记，'
-                          '每轮对话都带上。关闭后不再注入，笔记仍然保留。',
-                      value: widget.settings.learningEnabled,
-                      onChanged: (bool v) async {
-                        await widget.settings.update(
-                          () => widget.settings.learningEnabled = v,
-                        );
-                        if (mounted) setState(() {});
-                      },
-                    ),
-                    _entryCard(
-                      s,
-                      icon: Icons.school_outlined,
-                      title: '自学习笔记',
-                      desc: 'AI 自己写，你只能查看和删除（不能添加）',
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (BuildContext _) =>
-                              LearningPage(store: LearningStore.instance),
-                        ),
-                      ),
-                    ),
-                ],
-
-                // ---- 安全确认 ----
-                ...<Widget>[
-                    _section(s, '安全确认'),
-                    _bgCard(s),
-                    _switchRow(
-                      s,
-                      label: '只读命令自动执行',
-                      desc:
-                          '关闭后每一条命令都需要你确认。'
-                          '危险操作（卸载、清除数据、删除文件等）始终会弹窗确认，不受此项影响。',
-                      value: _autoApproveSafe,
-                      onChanged: (bool v) =>
-                          setState(() => _autoApproveSafe = v),
-                    ),
-                    _switchRow(
-                      s,
-                      label: '全部放行（之后不再询问）',
-                      desc:
-                          '关着的时候，每个有副作用的工具都会弹确认框。'
-                          '打开它 = 等价于点过确认框里的「全部运行」：'
-                          '**所有工具都不再询问，包括危险命令**。\n'
-                          '平时不用来这里开 —— 在任意一个确认框里点「全部运行」'
-                          '就会打开，输入框旁边也会出现一个感叹号随时能暂停。'
-                          '这一项只是给"我知道我在干什么"的人一个总开关。',
-                      value: _autoApproveAll,
-                      onChanged: (bool v) =>
-                          setState(() => _autoApproveAll = v),
-                    ),
-                    // 这里原来有个 `SizedBox(height: 10)`。`_switchRow` 现在
-                    // 自带 9 的下间距，再补一个就变成 19 —— 比别处都宽。
-                    _overlayRow(s),
-                    _a11yRow(s),
-                ],
-
-                // ---- 关于 ----
-                ...<Widget>[
-                  _section(s, '关于'),
-                  _note(s, '应用信息、作者 GitHub、内容尺度与说明'),
-                  _entryCard(
-                    s,
-                    icon: Icons.info_outline_rounded,
-                    title: kAppName,
-                    desc: '$kAppTagline\n版本 $kAppVersionLabel',
-                    trailingText: 'v$kAppVersion',
-                    onTap: () => showAboutDialog(
-                      context: context,
-                      applicationName: kAppName,
-                      applicationVersion: kAppVersionLabel,
-                      applicationLegalese: 'MIT License · $kAppTagline',
-                      children: <Widget>[
-                        const SizedBox(height: 12),
-                        Text(
-                          'Zeus 把大模型接到手机本地能力上：'
-                          '对话、笔记、任务、联网搜索、Python、'
-                          '内置浏览器与文件管理。模型配置与 API Key '
-                          '只保存在本机。',
-                          style: AppFonts.body(
-                            size: 13,
-                            color: s.text,
-                            height: 1.55,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  _entryCard(
-                    s,
-                    icon: Icons.code_rounded,
-                    title: '作者 GitHub：$kAuthorName',
-                    desc:
-                        'github.com/$kAuthorGithubName\n'
-                        '源代码、更新日志与问题反馈',
-                    onTap: () => launchUrl(
-                      Uri.parse(kAuthorGithubUrl),
-                      mode: LaunchMode.externalApplication,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                ],
               ],
+            ),
+            const SizedBox(height: 8),
+            Text(switch (_improveLevel) {
+              'low' => '低：最不容易改变你的原意，但只能修掉"读不通"的地方。',
+              'high' =>
+                '高：改动最大，会补出结构；适合"我懒得写需求，'
+                    '你先帮我理清楚"。代价是它可能补出你没说过的细节 —— '
+                    '所以改写结果会在原话下面折叠显示，发之前能核对。',
+              _ => '中：默认档位。多数情况下"补全指代 + 说明意图"就够了。',
+            }, style: AppFonts.body(size: 11.6, color: s.muted, height: 1.5)),
+            const SizedBox(height: 12),
+            _field(
+              s,
+              label: '改进用的模型名（留空 = 用当前对话模型）',
+              controller: _improveModel,
+              hint: 'deepseek-flash / gpt-4o-mini ',
+            ),
+            _field(
+              s,
+              label: '自定义改进要求（可选，优先级最高）',
+              controller: _improveInstruction,
+              hint: '例如：把所有代词换成具体的名字；按分点输出',
+            ),
+            _note(
+              s,
+              '自定义要求会**原样追加**给改写器，并明确告诉它"这条优先于'
+              '上面所有规则"。写自己的习惯就行，比如"我说话很省略，'
+              '帮我补成完整句子"。\n'
+              '改写用的地址和密钥沿用当前档案；改写失败或结果不像话时'
+              '**自动退回你的原话**，不会因为它出问题就发不出消息。',
+            ),
+          ],
+          _foldHeader(
+            s,
+            title: '输入建议',
+            icon: Icons.lightbulb_outline_rounded,
+            desc: '输入框上方给可点的建议；会多一次短调用',
+            open: _modelSuggestOpen,
+            onTap: () => setState(() => _modelSuggestOpen = !_modelSuggestOpen),
+          ),
+          if (_modelSuggestOpen) ...<Widget>[
+            // ---- 输入建议 ----
+            //
+            // 两块：图片一挂上来就解析，给出"这道题怎么写 / 这是什么"
+            // 这类可点的建议；以及根据上下文揣测下一句。
+            // 都走一次**很短**的模型请求，所以给独立的开关、模型和
+            // 思考强度 —— 不该跟主对话模型绑死。
+            const SizedBox(height: 18),
+            Text(
+              '输入建议',
+              style: AppFonts.body(
+                size: 12.8,
+                weight: FontWeight.w600,
+                color: s.muted,
+              ),
+            ),
+            _switchRow(
+              s,
+              label: '在输入框上方给建议',
+              desc:
+                  '发图片时先解析图片，给出「这道题怎么写」「这是什么」\n'
+                  '根据最近几轮对话，揣测你接下来可能想说什么\n'
+                  '建议只是可点的气泡，点了才填入输入框，不会替你发送',
+              value: _inputSuggest,
+              onChanged: (bool v) => setState(() => _inputSuggest = v),
+            ),
+            if (_inputSuggest) ...<Widget>[
+              _entryCard(
+                s,
+                icon: Icons.auto_awesome_outlined,
+                title: '建议用的模型',
+                desc: _suggestProfileLabel(),
+                onTap: _pickSuggestProfile,
+              ),
+              const SizedBox(height: 4),
+              Text('建议的思考强度', style: AppFonts.body(size: 12.5, color: s.muted)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: <Widget>[
+                  for (final (int, String) e in const <(int, String)>[
+                    (0, '关闭'),
+                    (1, '低'),
+                    (2, '高'),
+                    (3, '最高'),
+                  ])
+                    ChoiceChip(
+                      label: Text(e.$2),
+                      selected: _inputSuggestEffort == e.$1,
+                      labelStyle: AppFonts.body(
+                        size: 12,
+                        color: _inputSuggestEffort == e.$1
+                            ? AppColors.onAccent
+                            : s.text,
+                      ),
+                      onSelected: (_) =>
+                          setState(() => _inputSuggestEffort = e.$1),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              _note(
+                s,
+                '建议会消耗一次很短的模型调用（图片解析那次除外）。'
+                '选一个便宜、快的模型更合适；把强度设为「关闭」可以再省一点。',
+              ),
+            ],
+          ],
+          _foldHeader(
+            s,
+            title: '工具调用次数',
+            icon: Icons.build_outlined,
+            desc: '复杂任务被中途停住时才来调',
+            open: _modelRoundsOpen,
+            onTap: () => setState(() => _modelRoundsOpen = !_modelRoundsOpen),
+          ),
+          if (_modelRoundsOpen) ...<Widget>[
+            // ---- 单轮工具调用次数 ----
+            //
+            // 「不设限」= `maxToolRounds = 0`（见 Settings 里那一段）。
+            // 为什么要有这个选项：复杂任务要几轮根本估不准，而被
+            // 硬停住的代价比多花点 token 大得多 —— 模型不会说
+            // "我被限制了"，它只会含糊地总结一下，用户看到的是
+            // "它好像没做完"，还找不到原因。
+            _switchRow(
+              s,
+              label: '工具调用不设限',
+              desc:
+                  '关着的时候最多跑 ${Settings.maxToolRoundsCeiling} 轮。'
+                  '复杂任务（批量处理文件、多轮搜索核对）中途被停住时，'
+                  '模型不会说自己被限制了，只会含糊地收尾 —— '
+                  '打开这一项让它自己做判断。随时可以点停止键中断。',
+              value: _maxRounds <= 0,
+              onChanged: (bool v) => setState(() => _maxRounds = v ? 0 : 100),
+            ),
+            if (_maxRounds > 0)
+              _slider(
+                s,
+                label: '单轮最多工具调用次数',
+                value: _maxRounds.toDouble().clamp(
+                  1,
+                  Settings.maxToolRoundsCeiling.toDouble(),
+                ),
+                min: 1,
+                // 上限跟着 `Settings.maxToolRoundsCeiling` 走：
+                // value 越界时 Slider 会直接断言失败、整页崩掉，
+                // 所以这里和设置里的默认值必须同源。
+                max: Settings.maxToolRoundsCeiling.toDouble(),
+                divisions: Settings.maxToolRoundsCeiling - 1,
+                display: '$_maxRounds 次',
+                onChanged: (double v) => setState(() => _maxRounds = v.round()),
+              ),
+          ],
+        ],
+
+        // ---- 联网设置 ----
+        ...<Widget>[
+          _section(s, '搜索与网络'),
+          _note(s, '搜索通道、结果条数、识图模型'),
+          // ---- 抓网页用哪套 UA ----
+          //
+          // 同样的地址，手机版和桌面版常常是两份内容：
+          // 手机版把正文砍短、要点"展开全文"，桌面版是完整的。
+          // 抓资料时后者经常更好用，但**不该替他猜** —— 做成开关。
+          _switchRow(
+            s,
+            label: '抓网页时使用桌面版',
+            desc:
+                '关着＝按手机网页抓（默认）。\n'
+                '打开后按桌面站抓：一部分站点的正文只在桌面版才完整，'
+                '抓回来的资料更全；代价是少数站点会因此给出"电脑版"的更宽布局。',
+            value: _desktopUa,
+            onChanged: (bool v) => setState(() {
+              _desktopUa = v;
+              // 立刻生效：下一次抓取就用新 UA。
+              WebViewLoader.useDesktopUa = v;
+            }),
+          ),
+          Text(
+            '联网方式',
+            style: AppFonts.body(size: 12.8, color: s.muted, height: 1.3),
+          ),
+          const SizedBox(height: 8),
+          ...Settings.searchModePresets.map(((String, String) m) {
+            final bool active = _searchMode == m.$1;
+            return _SettingRow(
+              padding: const EdgeInsets.fromLTRB(14, 11, 12, 11),
+              borderColor: active ? AppColors.accent : null,
+              onTap: () => setState(() => _searchMode = m.$1),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      m.$2,
+                      style: AppFonts.body(
+                        size: 13,
+                        color: s.text,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                  if (active)
+                    Icon(
+                      Icons.check_circle_rounded,
+                      size: 17,
+                      color: AppColors.accent,
+                    ),
+                ],
+              ),
             );
+          }),
+          const SizedBox(height: 6),
+          Text(
+            '浏览器抓取使用的搜索引擎',
+            style: AppFonts.body(size: 12.8, color: s.muted, height: 1.3),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: SearchEngine.all.map((SearchEngine e) {
+              final bool active = _engine == e.id;
+              return _SettingRow(
+                // 胶囊不是列表行：没有底部分隔线。
+                divider: false,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 9,
+                ),
+                borderColor: active ? AppColors.accent : null,
+                onTap: () => setState(() => _engine = e.id),
+                child: Text(
+                  e.label,
+                  style: AppFonts.body(
+                    size: 13,
+                    weight: FontWeight.w600,
+                    color: active ? AppColors.accent : s.text,
+                    height: 1.2,
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          _foldHeader(
+            s,
+            title: '接口与识图',
+            icon: Icons.visibility_outlined,
+            desc: 'Tavily Key、直连通道、视觉模型；留空就复用主模型',
+            open: _netAdvancedOpen,
+            onTap: () => setState(() => _netAdvancedOpen = !_netAdvancedOpen),
+          ),
+          if (_netAdvancedOpen) ...<Widget>[
+            _field(
+              s,
+              label: 'Tavily API Key（可选）',
+              controller: _searchKey,
+              hint: '填了会优先用 Tavily，结果更完整',
+            ),
+
+            const SizedBox(height: 14),
+            Text(
+              '「+」面板里搜索走哪条通道',
+              style: AppFonts.body(size: 12.8, color: s.muted, height: 1.3),
+            ),
+            const SizedBox(height: 8),
+            // 这两条是**直连**通道（不走内置浏览器），所以它们在
+            // 国内网络下的可用性和上面的"浏览器引擎"完全不是一回事：
+            // 浏览器那条是拿系统 WebView 去抓，通用但慢；
+            // 这两条是直接请求接口，快，但可能被墙/被限流。
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: WebSearchSource.all.map((WebSearchSource src) {
+                final bool active = _webEngine == src.id;
+                return _SettingRow(
+                  // 同上：胶囊不画分隔线。
+                  divider: false,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 9,
+                  ),
+                  borderColor: active ? AppColors.accent : null,
+                  onTap: () => setState(() => _webEngine = src.id),
+                  child: Text(
+                    src.label,
+                    style: AppFonts.body(
+                      size: 13,
+                      weight: FontWeight.w600,
+                      color: active ? AppColors.accent : s.text,
+                      height: 1.2,
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 6),
+            _note(
+              s,
+              'Bing RSS 走 `search?format=rss`，国内可达而且结构稳定；'
+              'DuckDuckGo 走 lite 页，结果质量通常更好但国内经常连不上。'
+              '**首选失败会自动改用另一条**，所以选哪个都不会搜不到。',
+            ),
+
+            // 识图收在这一组：视觉模型同样是"选一个外部服务"
+            _note(
+              s,
+              '识图流程：用户发图或给出图片路径 → read_image 把图片交给模型。'
+              '当前模型勾了「支持图像理解」就直接用它；'
+              '没勾会用同一套地址和密钥试一次这里的视觉模型（默认 deepseek-flash），'
+              '都失败才降级为本地 OCR。'
+              '下面三项**留空就复用主模型**，只填其中一两项也可以。',
+            ),
+            _field(
+              s,
+              label: '视觉接口地址（可选，覆盖主模型）',
+              controller: _visionUrl,
+              hint: '留空则复用主模型的地址',
+            ),
+            _field(
+              s,
+              label: '视觉 API Key（可选）',
+              controller: _visionKey,
+              hint: '留空则复用主模型的 Key',
+              obscure: true,
+            ),
+            _field(
+              s,
+              label: '视觉模型（可选）',
+              controller: _visionModel,
+              hint: '留空则用 deepseek-flash',
+            ),
+          ],
+        ],
+
+        // ---- 开发者选项 ----
+        //
+        // 从前这里是一张入口卡（"高级设置" → 再点"开发者选项"）。
+        // 现在所有区块平铺，这一节直接出现；[_section] 就是它的标题。
+        ...<Widget>[
+          _section(s, '开发者'),
+          _note(
+            s,
+            '这些是排障工具，不是功能开关。打开之后，'
+            '对话页的「性能」面板会多出一页「耗时明细」：'
+            '把每一轮的模型思考、工具执行、以及它们之外的等待时间全列出来，'
+            '并且可以导出成 log 文本。',
+          ),
+          _switchRow(
+            s,
+            label: '启用开发者选项',
+            desc:
+                '打开后性能面板会多出「耗时明细」页。'
+                '关掉只是藏起入口，已记录的耗时不会被删。',
+            value: widget.settings.developerMode,
+            onChanged: (bool v) async {
+              await widget.settings.update(
+                () => widget.settings.developerMode = v,
+              );
+              if (mounted) setState(() {});
+            },
+          ),
+          if (widget.settings.developerMode) ...<Widget>[
+            _switchRow(
+              s,
+              label: '逐轮列出',
+              desc:
+                  '默认只给汇总。长对话里逐轮明细会有几百行，'
+                  '只在"第 12 轮为什么这么慢"时才需要打开。',
+              value: widget.settings.showPerTurnTimings,
+              onChanged: (bool v) async {
+                await widget.settings.update(
+                  () => widget.settings.showPerTurnTimings = v,
+                );
+                if (mounted) setState(() {});
+              },
+            ),
+            _note(
+              s,
+              '怎么看：对话页右上角「性能」→「耗时明细」。'
+              '那里有一条堆叠比例条（思考 / 工具 / 等待各占多少），'
+              '数字和百分比都在下面。',
+            ),
+            _note(
+              s,
+              '导出：在「耗时明细」页底部。可以复制到剪贴板'
+              '（直接粘进反馈里），或者存成 .txt 到手机「下载」目录。',
+            ),
+          ],
+        ],
+
+        // ---- 内容尺度与实验 ----
+        ...<Widget>[
+          _section(s, '安全'),
+          _entryCard(
+            s,
+            icon: Icons.shield_moon_outlined,
+            title: 'TeenSpace',
+            desc: '成人内容 / 政治议题 / 题目查询的回答尺度',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext _) =>
+                    TeenSpacePage(settings: widget.settings),
+              ),
+            ),
+          ),
+        ],
+
+        // ---- 存储与权限 ----
+        ...<Widget>[
+          _section(s, '权限'),
+          //
+          // ---- 密码与安全 ----
+          //
+          // 放在「工具」之前：它是**总开关级别**的东西，工具是内容。
+          _entryCard(
+            s,
+            icon: Icons.lock_outline_rounded,
+            title: '密码与安全',
+            desc:
+                '设置密码并选择保护范围：设置、笔记、计划、记忆、'
+                '规则、工具、敏感权限，以及打开应用。支持指纹 / 面部。',
+            trailingText: (appLock?.hasPassword ?? false) ? '已启用' : '未设置',
+            onTap: () async {
+              final LockStore? lock = appLock;
+              if (lock == null) return;
+              if (!await ensureUnlocked(context, LockScope.settings)) {
+                return;
+              }
+              if (!context.mounted) return;
+              await Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (BuildContext _) => LockSettingsPage(store: lock),
+                ),
+              );
+              if (context.mounted) setState(() {});
+            },
+          ),
+          _entryCard(
+            s,
+            icon: Icons.folder_copy_outlined,
+            title: 'tool',
+            desc:
+                '文件夹式的成套做法：`tool.md` 写怎么做，'
+                '旁边可以放脚本和模板。模型按需取用。',
+            trailingText: SkillStore.instance.tools.isEmpty
+                ? '还没有'
+                : '${SkillStore.instance.tools.length} 个',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext _) => const SkillsPage(),
+              ),
+            ),
+          ),
+
+          // ---- 终端 ----
+          //
+          // 入口在这里，是因为聊天页那个终端图标**只在命令跑着时
+          // 出现**（空闲时它没有信息量，还占地方）。
+          // 所以不跑命令的时候，这个入口是用户能找到终端页的唯一路径。
+          //
+          // 终端用的是**应用自带的 Alpine Linux**（proot + rootfs
+          // 都在 APK 里，启动时自动安装），不需要额外装任何东西。
+          _entryCard(
+            s,
+            icon: Icons.terminal_rounded,
+            title: '终端',
+            desc:
+                '自带一套 Alpine Linux（proot），启动时自动安装。'
+                '可以看 agent 跑过什么命令，也可以自己敲。',
+            trailingText: LinuxService.instance.installed ? '已安装' : '准备中',
+            onTap: () => openTerminal(context),
+          ),
+        ],
+
+        // ---- 数据与备份 ----
+        ...<Widget>[
+          _section(s, '数据'),
+          _entryCard(
+            s,
+            icon: Icons.gavel_rounded,
+            title: 'Agent.md',
+            desc: '最高优先级规范：写法、术语、交付格式。冲突时以它为准',
+            trailingText: AgentDocStore.instance.isEmpty
+                ? '未设置'
+                : '${AgentDocStore.instance.text.length} 字',
+            onTap: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (BuildContext _) =>
+                      AgentMdPage(store: AgentDocStore.instance),
+                ),
+              );
+              if (context.mounted) setState(() {});
+            },
+          ),
+          _entryCard(
+            s,
+            icon: Icons.rule_folder_outlined,
+            title: '自定义规则',
+            desc: '当的时候，就 —— 用自己的话规定 Agent 的行为',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext _) =>
+                    RulesPage(store: RuleStore.instance),
+              ),
+            ),
+          ),
+          _entryCard(
+            s,
+            icon: Icons.terminal_rounded,
+            title: 'Python 控制台',
+            desc: '跑在内置 Alpine 里（自动装 python3），在这里直接跑代码验证',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext _) => const PythonConsolePage(),
+              ),
+            ),
+          ),
+          _entryCard(
+            s,
+            icon: Icons.extension_outlined,
+            title: '插件',
+            desc: '自定义工具：声明参数和命令模板，给 Agent 加能力',
+            onTap: () => showPluginsSheet(
+              context,
+              store: widget.plugins,
+              builtinNames: <String>{
+                'linux',
+                'file_op',
+                'python',
+                'web',
+                'browser',
+                'read_image',
+                'notes',
+                'tasks',
+              },
+            ),
+          ),
+          _entryCard(
+            s,
+            icon: Icons.menu_book_outlined,
+            title: '知识库',
+            desc: '真 RAG：导入文档 → 切片 → 向量检索 → 带出处回答',
+            trailingText: KnowledgeStore.maybeInstance == null
+                ? null
+                : '${KnowledgeStore.instance.bases.length} 个',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext _) =>
+                    KnowledgePage(settings: widget.settings),
+              ),
+            ),
+          ),
+          _entryCard(
+            s,
+            icon: Icons.hub_outlined,
+            title: 'MCP 服务器',
+            desc: '接入外部 MCP 服务：连上就能把它的工具交给 AI 调用',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext _) => const McpPage(),
+              ),
+            ),
+          ),
+          _entryCard(
+            s,
+            icon: Icons.extension_rounded,
+            title: 'External Artifact',
+            desc: '已安装的关联 app，AI 可调用其提供的技能',
+            trailingText: ExternalArtifactStore.instance.artifacts.isEmpty
+                ? '未发现'
+                : '${ExternalArtifactStore.instance.artifacts.length} 个',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext _) => ExternalArtifactPage(
+                  store: ExternalArtifactStore.instance,
+                ),
+              ),
+            ),
+          ),
+          _entryCard(
+            s,
+            icon: Icons.ios_share_rounded,
+            title: '导出备份',
+            desc: '会话、笔记、任务、插件和设置（API Key 默认不含）',
+            onTap: () async {
+              final String? msg = await BackupActions.export(
+                context,
+                settings: widget.settings,
+                conversations: widget.conversations,
+                notes: widget.notes,
+                tasks: widget.tasks,
+                plugins: widget.plugins,
+              );
+              if (msg != null && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(msg),
+                    duration: const Duration(seconds: 4),
+                  ),
+                );
+              }
+            },
+          ),
+          _entryCard(
+            s,
+            icon: Icons.download_rounded,
+            title: '导入备份',
+            desc: '从 JSON 备份恢复，可选合并或覆盖',
+            onTap: () async {
+              final String? msg = await BackupActions.import(
+                context,
+                settings: widget.settings,
+                conversations: widget.conversations,
+                notes: widget.notes,
+                tasks: widget.tasks,
+                plugins: widget.plugins,
+              );
+              if (msg != null && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(msg),
+                    duration: const Duration(seconds: 4),
+                  ),
+                );
+              }
+            },
+          ),
+
+          // 存储并入「数据与扩展」—— 插件、导入导出、存储清理
+          // 都是"数据从哪来、往哪去"，归到一起更好找。
+          //
+          // 以前这里是手写的 `_SettingRow`，左边顶着一枚**裸图标**，
+          // 而同组其它入口（导出备份 / 导入备份）都是纯文字 + 右箭头，
+          // 一列扫下来就它一个有图标，像贴错了样式。
+          // 现在统一走 [_entryCard]，和其他入口长得一样。
+          _entryCard(
+            s,
+            icon: Icons.folder_outlined,
+            title: '管理存储空间',
+            desc: '查看并清理截图、录屏和聊天附件',
+            onTap: () => showStorageSheet(context, workDir: widget.workDir),
+          ),
+        ],
+
+        // ---- 记忆与自学习 ----
+        ...<Widget>[
+          _section(s, '对话'),
+          // ---- 压缩时机：三选一 ----
+          //
+          // 原来是一个开关（开 = 每轮都压）。开关的问题是它只回答
+          // "压不压"，回答不了"什么时候压" —— 而后者才是用户真正
+          // 在意的那件事：多数会话离上下文上限很远，每轮都压
+          // 等于白付一份有损的代价。
+          //
+          // 现在拆成三档，一眼能看出区别：
+          //  · 每轮压缩 —— 原来的行为，最省 token，也最损原文；
+          //  · 80% 压缩 —— 宽裕时给全文，吃紧了再压（推荐）；
+          //  · 不压缩 —— 核对输出、复现报错时用。
+          // 三档的说明文字不再显示（用户反馈"注释太多"）。原来每档下面
+          // 都挂着两三行解释，一屏读下去大半是灰字。要恢复的话，把 desc
+          // 加回元组并渲染即可。
+          for (final (String id, String title)
+              in const <(String, String)>[
+                ('every', '每轮压缩'),
+                ('ratio', '80% 压缩'),
+                ('off', '不压缩'),
+              ])
+            _SettingRow(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+              onTap: () async {
+                await widget.settings.update(
+                  () => widget.settings.compressMode = id,
+                );
+                if (mounted) setState(() {});
+              },
+              child: Row(
+                // 只剩一行字，改成垂直居中。
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: <Widget>[
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Text(
+                          title,
+                          style: AppFonts.body(
+                            size: 14.5,
+                            weight: widget.settings.compressMode == id
+                                ? FontWeight.w600
+                                : FontWeight.w400,
+                            color: s.text,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  if (widget.settings.compressMode == id)
+                    Icon(
+                      Icons.check_rounded,
+                      size: 18,
+                      color: AppColors.accent,
+                    ),
+                ],
+              ),
+            ),
+          if (widget.settings.compressContext)
+            _stepperRow(
+              s,
+              label: '保留最近几轮全文',
+              desc: '数值越大越保守，越不压。',
+              value: widget.settings.compressKeepTurns,
+              min: 1,
+              max: 10,
+              onChanged: (int v) async {
+                await widget.settings.update(
+                  () => widget.settings.compressKeepTurns = v,
+                );
+                if (mounted) setState(() {});
+              },
+            ),
+          _section(s, '记忆'),
+          _switchRow(
+            s,
+            label: '启用记忆',
+            desc: '关闭后记忆不再注入对话，但不会被删除',
+            value: widget.settings.memoryEnabled,
+            onChanged: (bool v) async {
+              await widget.settings.update(
+                () => widget.settings.memoryEnabled = v,
+              );
+              if (mounted) setState(() {});
+            },
+          ),
+          _switchRow(
+            s,
+            label: '跨聊天记忆',
+            desc:
+                'AI 能看到其他对话的摘要，需要时用 recall 检索原话。'
+                '只读，不会修改任何对话；关闭后立即停止注入和检索。',
+            value: widget.settings.crossChatMemory,
+            onChanged: (bool v) async {
+              await widget.settings.update(
+                () => widget.settings.crossChatMemory = v,
+              );
+              if (mounted) setState(() {});
+            },
+          ),
+          _entryCard(
+            s,
+            icon: Icons.psychology_outlined,
+            title: '管理记忆',
+            desc: '查看记住了什么、逐条删除、清空全部',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext _) =>
+                    MemoryPage(store: MemoryStore.instance),
+              ),
+            ),
+          ),
+          _entryCard(
+            s,
+            icon: Icons.forum_outlined,
+            title: '可回忆的对话',
+            desc: '看看 AI 能读到的其他对话（只读，不会修改）',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext _) => ChatMemoryPage(
+                  currentId: widget.conversations.currentId ?? '',
+                ),
+              ),
+            ),
+          ),
+
+          // ---- 自学习 ----
+          //
+          // 和「记忆」并排，但方向相反：记忆是 agent 记**用户**的事，
+          // 自学习是 agent 记**自己**的事（走过的弯路、犯过的错、
+          // 学会的技能）。所以这里没有"手动添加"，只有查看和删除。
+          _section(s, '学习'),
+          _switchRow(
+            s,
+            label: '启用自学习',
+            desc:
+                'AI 会把自己走过的弯路、犯过的错、学到的技能写进笔记，'
+                '每轮对话都带上。关闭后不再注入，笔记仍然保留。',
+            value: widget.settings.learningEnabled,
+            onChanged: (bool v) async {
+              await widget.settings.update(
+                () => widget.settings.learningEnabled = v,
+              );
+              if (mounted) setState(() {});
+            },
+          ),
+          _entryCard(
+            s,
+            icon: Icons.school_outlined,
+            title: '自学习笔记',
+            desc: 'AI 自己写，你只能查看和删除（不能添加）',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext _) =>
+                    LearningPage(store: LearningStore.instance),
+              ),
+            ),
+          ),
+        ],
+
+        // ---- 安全确认 ----
+        ...<Widget>[
+          _section(s, '安全确认'),
+          _bgCard(s),
+          _switchRow(
+            s,
+            label: '只读命令自动执行',
+            desc:
+                '关闭后每一条命令都需要你确认。'
+                '危险操作（卸载、清除数据、删除文件等）始终会弹窗确认，不受此项影响。',
+            value: _autoApproveSafe,
+            onChanged: (bool v) => setState(() => _autoApproveSafe = v),
+          ),
+          _switchRow(
+            s,
+            label: '全部放行（之后不再询问）',
+            desc:
+                '关着的时候，每个有副作用的工具都会弹确认框。'
+                '打开它 = 等价于点过确认框里的「全部运行」：'
+                '**所有工具都不再询问，包括危险命令**。\n'
+                '平时不用来这里开 —— 在任意一个确认框里点「全部运行」'
+                '就会打开，输入框旁边也会出现一个感叹号随时能暂停。'
+                '这一项只是给"我知道我在干什么"的人一个总开关。',
+            value: _autoApproveAll,
+            onChanged: (bool v) => setState(() => _autoApproveAll = v),
+          ),
+          // 这里原来有个 `SizedBox(height: 10)`。`_switchRow` 现在
+          // 自带 9 的下间距，再补一个就变成 19 —— 比别处都宽。
+          _overlayRow(s),
+        ],
+
+        // ---- 关于 ----
+        ...<Widget>[
+          _section(s, '关于'),
+          _note(s, '应用信息、作者 GitHub、内容尺度与说明'),
+          _entryCard(
+            s,
+            icon: Icons.info_outline_rounded,
+            title: kAppName,
+            desc: '$kAppTagline\n版本 $kAppVersionLabel',
+            trailingText: 'v$kAppVersion',
+            onTap: () => showAboutDialog(
+              context: context,
+              applicationName: kAppName,
+              applicationVersion: kAppVersionLabel,
+              applicationLegalese: 'MIT License · $kAppTagline',
+              children: <Widget>[
+                const SizedBox(height: 12),
+                Text(
+                  'Tinkung 把大模型接到手机本地能力上：'
+                  '对话、笔记、任务、联网搜索、Python、'
+                  '内置浏览器与文件管理。模型配置与 API Key '
+                  '只保存在本机。',
+                  style: AppFonts.body(size: 13, color: s.text, height: 1.55),
+                ),
+              ],
+            ),
+          ),
+          _entryCard(
+            s,
+            icon: Icons.code_rounded,
+            title: '作者 GitHub：$kAuthorName',
+            desc:
+                'github.com/$kAuthorGithubName\n'
+                '源代码、更新日志与问题反馈',
+            onTap: () => launchUrl(
+              Uri.parse(kAuthorGithubUrl),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
+      ]),
+    );
 
     return Scaffold(
       backgroundColor: s.pageBg,
@@ -2147,8 +1964,9 @@ class _SettingsSheetState extends State<_SettingsSheet>
               onPressed: () => Navigator.of(context).maybePop(),
             ),
           ),
-          // 单页平铺之后**没有内容切换**，所以不再需要 `AnimatedSwitcher`
-          // —— 那个动画是为"目录 ↔ 分类"换内容准备的。
+          _buildSearchBar(s),
+          _buildCategoryBar(s),
+          // 换分类只换列表内容，没有页面跳转 —— 不需要 `AnimatedSwitcher`。
           Expanded(child: content),
         ],
       ),
@@ -2161,80 +1979,380 @@ class _SettingsSheetState extends State<_SettingsSheet>
   Widget _foldHeader(
     AppSurface s, {
     required String title,
+    // 说明文字不再显示（见 [_entryCard] 的同一处改动）。
+    // ignore: unused_element_parameter
     required String desc,
     required bool open,
     required VoidCallback onTap,
     IconData icon = Icons.tune_rounded,
   }) {
     return _SettingRow(
-        padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
-        onTap: onTap,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: _entryRowHeight),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: <Widget>[
-              _entryIcon(icon),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppFonts.body(
-                        size: 15,
-                        weight: FontWeight.w600,
-                        color: s.text,
-                        height: 1.3,
+      padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
+      onTap: onTap,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: _entryRowHeight),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            _entryIcon(icon),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppFonts.body(
+                      size: 15,
+                      weight: FontWeight.w600,
+                      color: s.text,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 2),
+            AnimatedRotation(
+              turns: open ? 0.5 : 0,
+              duration: const Duration(milliseconds: 160),
+              child: Icon(Icons.expand_more_rounded, size: 20, color: s.muted),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 顶部搜索框：按关键词过滤**设置分组**。
+  ///
+  /// 设置项越加越多，靠滚动找一项已经很难受了。它匹配小节名、分类名和
+  /// [_kSectionKeywords] 里的近义词，命中就把整张卡片留下 —— 不逐行隐藏，
+  /// 免得剩下几个孤零零的开关。它不搜索输入框里填的值。
+  Widget _buildSearchBar(AppSurface s) {
+    // FocusNode 是 ChangeNotifier，直接拿它驱动聚焦时的描边反馈。
+    return AnimatedBuilder(
+      animation: _searchFocus,
+      builder: (BuildContext context, Widget? _) {
+        final bool focused = _searchFocus.hasFocus;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            // 整框任意位置都能点进输入：以前只有中间那一小条 TextField
+            // 接点击，点放大镜或空白处没反应。
+            onTap: () => _searchFocus.requestFocus(),
+            child: Container(
+              height: 44,
+              decoration: BoxDecoration(
+                color: s.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: focused ? AppColors.accent : s.border,
+                  width: focused ? 1.4 : 0.9,
+                ),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Row(
+                children: <Widget>[
+                  Icon(Icons.search_rounded, size: 18, color: s.muted),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: TextField(
+                      controller: _searchCtrl,
+                      focusNode: _searchFocus,
+                      onChanged: (String v) =>
+                          setState(() => _searchQuery = v.trim()),
+                      style: AppFonts.body(size: 14, color: s.text),
+                      decoration: InputDecoration(
+                        hintText: '搜索设置',
+                        hintStyle: AppFonts.body(size: 14, color: s.muted),
+                        // **关掉全局 InputDecorationTheme 的 filled**：
+                        // 那层 fillColor(codeBg) 只铺在 TextField 这一小块，
+                        // 就成了"圆角框里还套着一条灰胶囊"。现在整框
+                        // 本身就是输入框，颜色、描边、点击都只有一个来源。
+                        filled: false,
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.zero,
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      desc,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppFonts.body(
-                        size: 12.5,
+                  ),
+                  if (_searchQuery.isNotEmpty)
+                    GestureDetector(
+                      onTap: () {
+                        _searchCtrl.clear();
+                        setState(() => _searchQuery = '');
+                      },
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 16,
                         color: s.muted,
-                        height: 1.4,
                       ),
                     ),
-                  ],
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 分组标题。
+  ///
+  /// 现在返回的是一枚**标记**（[_SectionMarker]），不是画出来的文字。
+  /// [build] 里先把整页的扁平列表按这些标记切开，再给每组装上
+  /// [_sectionHeader] + [_settingsCard] —— 也就是说，标题和卡片是
+  /// **布局阶段**生成的，调用点只负责声明"从这里开始是另一个小节"。
+  Widget _section(AppSurface s, String title) => _SectionMarker(title);
+
+  /// 分类胶囊条。搜索时它仍然显示，但筛选以搜索结果为准。
+  Widget _buildCategoryBar(AppSurface s) {
+    return SizedBox(
+      height: 52,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        itemCount: _kCategories.length,
+        separatorBuilder: (BuildContext context, int index) =>
+            const SizedBox(width: 8),
+        itemBuilder: (BuildContext _, int i) {
+          final _Category c = _kCategories[i];
+          final bool active = _category == c.id;
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _category = c.id),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: active ? AppColors.accent : s.surface,
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+                border: Border.all(
+                  color: active ? AppColors.accent : s.border,
+                  width: 0.8,
                 ),
               ),
-              const SizedBox(width: 2),
-              AnimatedRotation(
-                turns: open ? 0.5 : 0,
-                duration: const Duration(milliseconds: 160),
-                child: Icon(
-                  Icons.expand_more_rounded,
-                  size: 20,
-                  color: s.muted,
-                ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Icon(
+                    c.icon,
+                    size: 14,
+                    color: active ? Colors.white : s.muted,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    c.label,
+                    style: AppFonts.body(
+                      size: 12.5,
+                      weight: active ? FontWeight.w600 : FontWeight.w400,
+                      color: active ? Colors.white : s.text,
+                      height: 1.2,
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// 把扁平的 `children` 按小节切成一块块**圆角卡片**。
+  ///
+  /// ## 为什么要后置处理，而不是改那六十多个调用点
+  ///
+  /// [build] 里是一整条 `ListView(children: [...])`，各小节之间只靠
+  /// [_section] 返回的标记隔开。逐个把调用点包进 `Card(...)` 要动
+  /// 十几处 `...<Widget>[...]`，条件分支（`if (_thinking)` 之类）还会
+  /// 把卡片切碎。后置处理只认标记，调用点一个字都不用改 —— 以后加
+  /// 一行设置，它自动落进所属的那张卡。
+  List<Widget> _groupIntoCards(AppSurface s, List<Widget> flat) {
+    final List<_SectionGroup> groups = <_SectionGroup>[];
+    final List<Widget> prelude = <Widget>[];
+    _SectionGroup? current;
+
+    for (final Widget w in flat) {
+      if (w is _SectionMarker) {
+        current = _SectionGroup(w.title);
+        if (prelude.isNotEmpty) {
+          current.children.addAll(prelude);
+          prelude.clear();
+        }
+        groups.add(current);
+      } else if (current == null) {
+        prelude.add(w);
+      } else {
+        current.children.add(w);
+      }
+    }
+    // 一个标记都没有（理论上不会）：把整页兜底塞进「全部」这一组。
+    if (current == null && prelude.isNotEmpty) {
+      groups.add(_SectionGroup('设置')..children.addAll(prelude));
+    }
+
+    final bool searching = _searchQuery.trim().isNotEmpty;
+    // 空格分词、逐词命中：搜「api key」「导出 备份」这种组合也能定位，
+    // 不会因为把整句当成一个长子串而什么都搜不到。
+    final List<String> terms = searching
+        ? _searchQuery
+              .trim()
+              .toLowerCase()
+              .split(RegExp(r'\s+'))
+              .where((String t) => t.isNotEmpty)
+              .toList()
+        : <String>[];
+    final List<_SectionGroup> shown = groups.where((_SectionGroup g) {
+      if (terms.isNotEmpty) {
+        final String hay = <String>[
+          g.title,
+          _kCategories
+              .where((_Category c) => c.id == _kSectionCategory[g.title])
+              .map((_Category c) => c.label)
+              .join(' '),
+          _kSectionKeywords[g.title] ?? '',
+          // 卡片里那些裸 Text 小标题（推理强度 / 联网方式 / 浏览器抓取
+          // 使用的搜索引擎…）屏幕上明明看得见，以前却搜不到 ——
+          // 把它们也并进搜索源。
+          for (final Widget w in g.children)
+            if (w is Text) (w.data ?? ''),
+        ].join(' ').toLowerCase();
+        return terms.every((String t) => hay.contains(t));
+      }
+      return _category == 'all' || _kSectionCategory[g.title] == _category;
+    }).toList();
+
+    final List<Widget> out = <Widget>[];
+    for (final _SectionGroup g in shown) {
+      final List<Widget> rows = _trimRows(g.children);
+      if (rows.isEmpty) continue;
+      out.add(_sectionHeader(s, g.title));
+      out.add(_settingsCard(s, rows));
+    }
+
+    if (out.isEmpty) {
+      out.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 72),
+          child: Center(
+            child: Column(
+              children: <Widget>[
+                Icon(Icons.search_off_rounded, size: 30, color: s.muted),
+                const SizedBox(height: 12),
+                Text(
+                  searching
+                      ? '没有找到「$_searchQuery」相关的设置'
+                      : '这一栏暂时没有设置项',
+                  style: AppFonts.body(size: 13.5, color: s.muted),
+                ),
+              ],
+            ),
           ),
         ),
       );
+    } else {
+      out.add(const SizedBox(height: 20));
+    }
+    return out;
   }
 
-  /// 分组标题：11.5 / w600 / muted，左对齐，上 18 下 8。
-  Widget _section(AppSurface s, String title) {
+  /// 去掉首尾纯占位：`SizedBox(height: N)` 在卡片里会变成上下两条空边。
+  static List<Widget> _trimRows(List<Widget> src) {
+    final List<Widget> rows = List<Widget>.of(src);
+    bool blank(Widget w) => w is SizedBox && w.child == null;
+    while (rows.isNotEmpty && blank(rows.first)) {
+      rows.removeAt(0);
+    }
+    while (rows.isNotEmpty && blank(rows.last)) {
+      rows.removeLast();
+    }
+    // 小标题是**裸 `Text`** 直接塞进 children 的：以前没有左右内边距，
+    // 贴着卡片边缘，和下面统一缩进 14 的行错开，看起来像掉到卡片外面
+    // 的孤立标签（截图里「联网方式」「推理强度」「浏览器抓取使用的
+    // 搜索引擎」都是这样）。统一在这里补一层，调用点一个字都不用改。
+    final List<Widget> out = <Widget>[];
+    for (final Widget w in rows) {
+      // 说明文字整条不显示（见 [_note]）。直接丢掉而不是塞一个空盒子，
+      // 否则它会占掉卡片的"最后一行"标记，分隔线就画错了地方。
+      if (w is _NoteBlock) continue;
+      if (w is Text) {
+        out.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+            child: w,
+          ),
+        );
+      } else {
+        out.add(w);
+      }
+    }
+    return out;
+  }
+
+  /// 小节标题：小图标 + 名称 + 一条向右淡出的细线。
+  Widget _sectionHeader(AppSurface s, String title) {
     return Padding(
-      padding: const EdgeInsets.only(top: 18, bottom: 8),
-      child: Text(
-        title,
-        style: AppFonts.body(
-          size: 11.5,
-          weight: FontWeight.w600,
-          color: s.muted,
-          height: 1.2,
-          letterSpacing: 0.8,
-        ),
+      padding: const EdgeInsets.fromLTRB(4, 20, 4, 9),
+      child: Row(
+        children: <Widget>[
+          Icon(
+            _kSectionIcon[title] ?? Icons.tune_rounded,
+            size: 15,
+            color: AppColors.accent,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: AppFonts.body(
+              size: 12.5,
+              weight: FontWeight.w600,
+              color: s.text,
+              height: 1.2,
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Container(height: 0.6, color: s.border)),
+        ],
+      ),
+    );
+  }
+
+  /// 一张分组卡片。
+  ///
+  /// 行与行之间仍然靠 [_SettingRow] 自己那条发丝线，最后一行由
+  /// [_CardRowScope] 告知"你是最后一行"，不再画线 —— 线交给卡片自己的
+  /// 描边收口，否则底边会出现两根几乎重合的线。
+  Widget _settingsCard(AppSurface s, List<Widget> rows) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: s.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: s.border, width: 0.8),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: (s.isDark ? Colors.black : const Color(0xFF9AA0A6))
+                .withValues(alpha: s.isDark ? 0.3 : 0.13),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          for (int i = 0; i < rows.length; i++)
+            _CardRowScope(isLast: i == rows.length - 1, child: rows[i]),
+        ],
       ),
     );
   }
@@ -2359,6 +2477,8 @@ class _SettingsSheetState extends State<_SettingsSheet>
   Widget _stepperRow(
     AppSurface s, {
     required String label,
+    // 说明文字不再显示（见 [_entryCard] 的同一处改动）。
+    // ignore: unused_element_parameter
     required String desc,
     required int value,
     required int min,
@@ -2372,24 +2492,14 @@ class _SettingsSheetState extends State<_SettingsSheet>
         crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  label,
-                  style: AppFonts.body(
-                    size: 14,
-                    weight: FontWeight.w600,
-                    color: s.text,
-                    height: 1.3,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  desc,
-                  style: AppFonts.body(size: 12.3, color: s.muted, height: 1.5),
-                ),
-              ],
+            child: Text(
+              label,
+              style: AppFonts.body(
+                size: 14,
+                weight: FontWeight.w600,
+                color: s.text,
+                height: 1.3,
+              ),
             ),
           ),
           IconButton(
@@ -2422,6 +2532,8 @@ class _SettingsSheetState extends State<_SettingsSheet>
   Widget _switchRow(
     AppSurface s, {
     required String label,
+    // 说明文字不再显示（见 [_entryCard] 的同一处改动）。
+    // ignore: unused_element_parameter
     required String desc,
     required bool value,
     required ValueChanged<bool> onChanged,
@@ -2434,27 +2546,19 @@ class _SettingsSheetState extends State<_SettingsSheet>
       // 再补 9 反而会在连成一列的行里插进一段空白。
       padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        // 说明去掉之后只剩一行字，开关改成**垂直居中**：原来按 start
+        // 对齐是配合两行文字的，行高一变开关就贴到顶上去了。
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  label,
-                  style: AppFonts.body(
-                    size: 14,
-                    weight: FontWeight.w600,
-                    color: s.text,
-                    height: 1.3,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  desc,
-                  style: AppFonts.body(size: 12.3, color: s.muted, height: 1.5),
-                ),
-              ],
+            child: Text(
+              label,
+              style: AppFonts.body(
+                size: 14,
+                weight: FontWeight.w600,
+                color: s.text,
+                height: 1.3,
+              ),
             ),
           ),
           IosSwitch(value: value, onChanged: onChanged),
@@ -2468,31 +2572,243 @@ class _SettingsSheetState extends State<_SettingsSheet>
   /// 之前它有自己的底色、描边和圆角 —— 在"全是条目"的设置页里，
   /// 它是唯一一个还带底色的块，反而比正文显眼（用户的要求是
   /// "栏目不要板块/卡片的"）。
+  /// 主题色（Material You 种子色）选择。
   ///
-  /// 现在只剩：一个 14 号的信息图标 + 一段 12.5 的灰字。
-  /// 靠**左边缩进 14 + 上方 10** 和真正的条目区分开 —— 它是注释，
-  /// 不该有和条目一样的视觉重量。
-  Widget _note(AppSurface s, String text) {
+  /// 每个色点代表**一整套**配色：页面底、卡片、代码块、气泡、按钮和
+  /// 开关都由 `ColorScheme.fromSeed` 从它推出来，不是只换一个强调色。
+  Widget _themeColorCard(AppSurface s) {
+    final Settings settings = widget.settings;
+    final Color current = settings.themeSeed == 0
+        ? AppColors.defaultSeed
+        : Color(settings.themeSeed);
+    final bool customActive =
+        !settings.followSystemColor &&
+        !_kSeedPresets.any((Color c) => c.toARGB32() == current.toARGB32());
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.only(top: 1),
-            child: Icon(Icons.info_outline_rounded, size: 14, color: s.muted),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  '主题色',
+                  style: AppFonts.body(size: 15, color: s.text, height: 1.3),
+                ),
+              ),
+              Text(
+                settings.followSystemColor ? '系统壁纸' : '自定义 / 预设',
+                style: AppFonts.body(size: 12, color: s.muted),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: mdText(
-              text,
-              style: AppFonts.body(size: 12.5, color: s.muted, height: 1.55),
-            ),
+          const SizedBox(height: 4),
+          Text(
+            '背景、卡片、气泡、按钮都跟着这个颜色生成。',
+            style: AppFonts.body(size: 12, color: s.muted, height: 1.4),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 11,
+            runSpacing: 11,
+            children: <Widget>[
+              for (final Color c in _kSeedPresets)
+                _seedDot(
+                  s,
+                  c,
+                  selected:
+                      !settings.followSystemColor &&
+                      c.toARGB32() == current.toARGB32(),
+                ),
+              _customSeedDot(s, current, active: customActive),
+            ],
           ),
         ],
       ),
     );
   }
+
+  Widget _seedDot(AppSurface s, Color color, {required bool selected}) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _setSeed(color),
+      child: Container(
+        width: 30,
+        height: 30,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: color,
+          border: Border.all(
+            color: selected ? s.text : s.border,
+            width: selected ? 2.2 : 1,
+          ),
+        ),
+        child: selected
+            ? Icon(
+                Icons.check_rounded,
+                size: 16,
+                color: color.computeLuminance() > 0.5
+                    ? Colors.black87
+                    : Colors.white,
+              )
+            : null,
+      ),
+    );
+  }
+
+  Widget _customSeedDot(
+    AppSurface s,
+    Color current, {
+    required bool active,
+  }) {
+    final Color fg = active
+        ? (current.computeLuminance() > 0.5 ? Colors.black87 : Colors.white)
+        : s.muted;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _pickCustomColor(current),
+      child: Container(
+        width: 30,
+        height: 30,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: active ? current : Colors.transparent,
+          border: Border.all(
+            color: active ? s.text : s.muted,
+            width: active ? 2.2 : 1,
+          ),
+        ),
+        child: Icon(Icons.add_rounded, size: 17, color: fg),
+      ),
+    );
+  }
+
+  Future<void> _setSeed(Color c) async {
+    await widget.settings.update(() {
+      widget.settings.themeSeed = c.toARGB32();
+      // 手动选了颜色就退出「跟随系统」，否则屏幕上没变化，
+      // 用户会以为色板坏了。
+      widget.settings.followSystemColor = false;
+    });
+    if (mounted) setState(() {});
+  }
+
+  /// 自定义种子色：色相 / 饱和度 / 明度三根滑杆。
+  ///
+  /// 不引第三方取色器包 —— 三根滑杆已经覆盖全部 RGB，而且滑块样式
+  /// 自动跟着当前主题走，不会在设置页里冒出另一套视觉。
+  Future<void> _pickCustomColor(Color initial) async {
+    final HSVColor start = HSVColor.fromColor(initial);
+    double hue = start.hue;
+    double sat = start.saturation;
+    double val = start.value;
+
+    final Color? picked = await showDialog<Color>(
+      context: context,
+      builder: (BuildContext ctx) {
+        final AppSurface s = AppSurface.of(ctx);
+        return StatefulBuilder(
+          builder: (BuildContext ctx, StateSetter setDialog) {
+            final Color preview = HSVColor.fromAHSV(1, hue, sat, val).toColor();
+            final Color fg = preview.computeLuminance() > 0.5
+                ? Colors.black87
+                : Colors.white;
+
+            Widget slider(
+              String label,
+              double value,
+              double max,
+              ValueChanged<double> onChanged,
+            ) {
+              return Row(
+                children: <Widget>[
+                  SizedBox(
+                    width: 34,
+                    child: Text(
+                      label,
+                      style: AppFonts.body(size: 12, color: s.muted),
+                    ),
+                  ),
+                  Expanded(
+                    child: Slider(value: value, max: max, onChanged: onChanged),
+                  ),
+                ],
+              );
+            }
+
+            return AlertDialog(
+              title: Text(
+                '自定义主题色',
+                style: AppFonts.body(size: 16, color: s.text),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Container(
+                    height: 54,
+                    width: double.infinity,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: preview,
+                      borderRadius: BorderRadius.circular(AppRadius.field),
+                    ),
+                    child: Text(
+                      '预览',
+                      style: AppFonts.body(size: 13, color: fg),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  slider(
+                    '色相',
+                    hue,
+                    360,
+                    (double v) => setDialog(() => hue = v),
+                  ),
+                  slider(
+                    '饱和',
+                    sat,
+                    1,
+                    (double v) => setDialog(() => sat = v),
+                  ),
+                  slider(
+                    '明度',
+                    val,
+                    1,
+                    (double v) => setDialog(() => val = v),
+                  ),
+                ],
+              ),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(preview),
+                  child: const Text('应用'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    if (picked != null) await _setSeed(picked);
+  }
+
+  ///
+  /// 现在只剩：一个 14 号的信息图标 + 一段 12.5 的灰字。
+  /// 靠**左边缩进 14 + 上方 10** 和真正的条目区分开 —— 它是注释，
+  /// 不该有和条目一样的视觉重量。
+  /// 说明条。
+  ///
+  /// **现在不显示**：设置页的说明文字太多，一屏读下去大半是灰字
+  /// （用户原话："很多选项太多注释了都去掉"）。内容仍然留着 ——
+  /// 以后想恢复，只把 [_NoteBlock] 的 build 换回真身即可，
+  /// 十三个调用点一个字都不用改。
+  Widget _note(AppSurface s, String text) => _NoteBlock(text);
 }
 
 /// 设置页的一行：**条目型，不是卡片**。
@@ -2513,6 +2829,19 @@ class _SettingsSheetState extends State<_SettingsSheet>
 /// 15 个调用点原来都写着 `SurfaceCard(padding: …, onTap: …)`。
 /// 保持同样的签名，替换时只需要改类名 —— 那些调用的内部结构
 /// （图标 + 标题 + 说明 + 右箭头）本来就和容器无关。
+/// 一条被隐藏的说明文字。
+///
+/// 保留它是为了将来能整体恢复说明：[_note] 只返回它，[_trimRows] 在
+/// 组装卡片时把它丢掉；想恢复，改这一处的 build 就够了。
+class _NoteBlock extends StatelessWidget {
+  const _NoteBlock(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
 class _SettingRow extends StatelessWidget {
   const _SettingRow({
     required this.child,
@@ -2559,7 +2888,10 @@ class _SettingRow extends StatelessWidget {
           // 行与行之间的那条线。0.6 是"发丝线"的宽度 ——
           // 1.0 在 3x 屏上会渲染成 3 个物理像素，看起来像一条实线。
           decoration: BoxDecoration(
-            border: divider
+            // 卡片里的**最后一行**不画：那条线会和卡片自己的底边描边
+            // 叠成一根更粗的线。由 [_settingsCard] 通过 [_CardRowScope]
+            // 告诉它"你是最后一个"。
+            border: divider && !_CardRowScope.isLastOf(context)
                 ? Border(bottom: BorderSide(color: s.border, width: 0.6))
                 : null,
           ),
@@ -2568,4 +2900,47 @@ class _SettingRow extends StatelessWidget {
       ),
     );
   }
+}
+
+// ------------------------------------------------------------ 分组基建
+
+/// 一个「从这里开始是新小节」的标记。
+///
+/// 它**永远不会被渲染**：[_SettingsSheetState._groupIntoCards] 在组装
+/// `ListView.children` 之前就把这些标记摘掉，换成小节标题 + 卡片。
+class _SectionMarker extends StatelessWidget {
+  const _SectionMarker(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+/// 切出来的一组：`title` + 属于它的所有行。
+class _SectionGroup {
+  _SectionGroup(this.title);
+
+  final String title;
+  final List<Widget> children = <Widget>[];
+}
+
+/// 告诉某一行"你是不是这张卡的最后一行"。
+///
+/// 用 `InheritedWidget` 而不是给 [_SettingRow] 加一个参数：那些行是在
+/// `build` 里几十个互不相干的方法里造出来的，逐个传 `isLast` 既改不完，
+/// 也会让条件分支（`if (_thinking)`）下的"最后一行"随时变。
+/// 由卡片在**组装时**统一套一层，行自己去上下问一句就行。
+class _CardRowScope extends InheritedWidget {
+  const _CardRowScope({required this.isLast, required super.child});
+
+  final bool isLast;
+
+  static bool isLastOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_CardRowScope>()?.isLast ??
+      false;
+
+  @override
+  bool updateShouldNotify(_CardRowScope oldWidget) =>
+      oldWidget.isLast != isLast;
 }

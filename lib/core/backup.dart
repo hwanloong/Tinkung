@@ -198,7 +198,7 @@ class Backup {
   static String suggestedFileName() {
     final DateTime d = DateTime.now();
     String two(int v) => v.toString().padLeft(2, '0');
-    return 'privtasker-backup-${d.year}${two(d.month)}${two(d.day)}'
+    return 'tinkung-backup-${d.year}${two(d.month)}${two(d.day)}'
         '-${two(d.hour)}${two(d.minute)}.json';
   }
 }

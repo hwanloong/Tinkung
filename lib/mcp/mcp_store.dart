@@ -75,29 +75,53 @@ class McpServer {
     List<McpToolInfo>? tools,
     this.lastError = '',
     this.lastConnectedAt,
+    Set<String>? disabledTools,
   }) : headers = Map<String, String>.from(headers ?? <String, String>{}),
-       tools = List<McpToolInfo>.from(tools ?? <McpToolInfo>[]);
+       tools = List<McpToolInfo>.from(tools ?? <McpToolInfo>[]),
+       disabledTools = Set<String>.from(disabledTools ?? <String>{});
 
   final String id;
   String name;
   String url;
-
-  /// 自定义请求头（通常是 `Authorization: Bearer …`）。
-  /// 只在本地存、**不进备份**（和 API Key 同一条规则）。
   Map<String, String> headers;
-
   bool enabled;
-
-  /// 上一次成功发现到的工具（离线也能用：直接注册缓存的这一份）。
   List<McpToolInfo> tools;
 
-  /// 上一次连接失败的原因；空 = 正常。
+  /// 单独禁用的工具名集合（服务器原始名）。
+  /// 禁用的工具不进 ToolRegistry，模型看不到也不会调。
+  Set<String> disabledTools;
+
   String lastError;
-
-  /// 服务器在 initialize 里自报的名字（只用于展示）。
   String serverName = '';
-
   DateTime? lastConnectedAt;
+
+  /// 熔断：连续失败次数。
+  int _failCount = 0;
+  DateTime? _blockedUntil;
+
+  bool get isBlocked {
+    final DateTime? until = _blockedUntil;
+    if (until == null) return false;
+    if (DateTime.now().isBefore(until)) return true;
+    _blockedUntil = null;
+    _failCount = 0;
+    return false;
+  }
+
+  void recordSuccess() {
+    _failCount = 0;
+    _blockedUntil = null;
+  }
+
+  void recordFailure() {
+    _failCount++;
+    if (_failCount >= 3) {
+      _blockedUntil = DateTime.now().add(const Duration(seconds: 60));
+    }
+  }
+
+  List<McpToolInfo> get enabledTools =>
+      tools.where((McpToolInfo t) => !disabledTools.contains(t.name)).toList();
 
   String get displayName => name.trim().isEmpty ? url : name.trim();
 
@@ -108,6 +132,7 @@ class McpServer {
     'headers': headers,
     'enabled': enabled,
     'tools': tools.map((McpToolInfo t) => t.toJson()).toList(),
+    'disabledTools': disabledTools.toList(),
     'lastError': lastError,
     'serverName': serverName,
     'lastConnectedAt': lastConnectedAt?.toIso8601String(),
@@ -129,6 +154,12 @@ class McpServer {
         if (k != null) headers[k.toString()] = v?.toString() ?? '';
       });
     }
+    final Set<String> disabledTools = <String>{};
+    if (j['disabledTools'] is List) {
+      for (final dynamic e in j['disabledTools'] as List<dynamic>) {
+        disabledTools.add(e.toString());
+      }
+    }
     return McpServer(
       id: j['id']?.toString() ?? newId(),
       name: j['name']?.toString() ?? '',
@@ -136,6 +167,7 @@ class McpServer {
       headers: headers,
       enabled: j['enabled'] != false,
       tools: tools,
+      disabledTools: disabledTools,
       lastError: j['lastError']?.toString() ?? '',
       lastConnectedAt: DateTime.tryParse(
         j['lastConnectedAt']?.toString() ?? '',
@@ -153,11 +185,6 @@ class McpStore extends ChangeNotifier {
 
   static McpStore? _instance;
 
-  /// 未初始化时返回 null。
-  ///
-  /// 工具注册表会在 `ChatPage` 里被构建，而某些测试/早期路径并不经过
-  /// `main()`。这里不能像提示词那几个 store 一样直接抛：没有 MCP 只是
-  /// "少一组工具"，不该让整页崩掉。
   static McpStore? get maybeInstance => _instance;
 
   static McpStore get instance {
@@ -177,15 +204,24 @@ class McpStore extends ChangeNotifier {
 
   final File _file;
   final List<McpServer> servers = <McpServer>[];
-
-  /// **内存里**的会话（进程重启后重新 initialize 即可，不落盘）。
   final Map<String, McpSession> _sessions = <String, McpSession>{};
+
+  /// 调用记录：环形缓冲，最多 200 条。
+  final List<McpCallRecord> callHistory = <McpCallRecord>[];
+  static const int _maxHistory = 200;
+
+  void _addRecord(McpCallRecord rec) {
+    callHistory.add(rec);
+    if (callHistory.length > _maxHistory) {
+      callHistory.removeAt(0);
+    }
+  }
 
   List<McpServer> get enabledServers =>
       servers.where((McpServer s) => s.enabled).toList();
 
   int get toolCount =>
-      enabledServers.fold<int>(0, (int n, McpServer s) => n + s.tools.length);
+      enabledServers.fold<int>(0, (int n, McpServer s) => n + s.enabledTools.length);
 
   /// 拼成注入系统提示词的一段，**主动告诉模型"你有哪些外部工具"**。
   ///
@@ -199,7 +235,7 @@ class McpStore extends ChangeNotifier {
   /// token 的量级；真正的参数说明还在 schema 里。
   String toPromptSection() {
     final List<McpServer> active = enabledServers
-        .where((McpServer s) => s.tools.isNotEmpty)
+        .where((McpServer s) => s.enabledTools.isNotEmpty && !s.isBlocked)
         .toList();
     if (active.isEmpty) return '';
 
@@ -209,15 +245,15 @@ class McpStore extends ChangeNotifier {
     int shown = 0;
     for (final McpServer s in active) {
       final List<String> titles = <String>[];
-      for (final McpToolInfo t in s.tools.take(8)) {
+      for (final McpToolInfo t in s.enabledTools.take(8)) {
         final String label = t.title.trim().isEmpty ? t.name : t.title.trim();
         titles.add(label);
       }
       sb.writeln(
-        '- 「${s.displayName}」（${s.tools.length} 个）：${titles.join('、')}'
-        '${s.tools.length > 8 ? ' 等' : ''}',
+        '- 「${s.displayName}」（${s.enabledTools.length} 个）：${titles.join('、')}'
+        '${s.enabledTools.length > 8 ? ' 等' : ''}',
       );
-      shown += s.tools.length;
+      shown += s.enabledTools.length;
       if (shown >= 30) break;
     }
     sb.writeln(
@@ -292,6 +328,15 @@ class McpStore extends ChangeNotifier {
 
   void setEnabled(McpServer server, bool on) {
     server.enabled = on;
+    _changed();
+  }
+
+  void setToolEnabled(McpServer server, String toolName, bool on) {
+    if (on) {
+      server.disabledTools.remove(toolName);
+    } else {
+      server.disabledTools.add(toolName);
+    }
     _changed();
   }
 
@@ -371,12 +416,17 @@ class McpStore extends ChangeNotifier {
     }
   }
 
-  /// 调用工具。会话过期（服务器重启 / 404）时自动重建一次。
   Future<McpCallResult> callTool(
     McpServer server,
     String toolName,
     Map<String, dynamic> args,
   ) async {
+    if (server.isBlocked) {
+      throw McpProtocolError('服务器「${server.displayName}」暂时不可用（连续失败已熔断，60 秒后自动恢复）');
+    }
+
+    final DateTime start = DateTime.now();
+
     Future<McpCallResult> attempt(McpSession? existing) async {
       final McpClient client = McpClient(headers: server.headers);
       try {
@@ -389,13 +439,91 @@ class McpStore extends ChangeNotifier {
     }
 
     try {
-      return await attempt(_sessions[server.id]);
+      final McpCallResult result = await attempt(_sessions[server.id]);
+      server.recordSuccess();
+      _addRecord(McpCallRecord(
+        time: start,
+        serverId: server.id,
+        serverName: server.displayName,
+        tool: toolName,
+        argsSummary: _argsSummary(args),
+        durationMs: DateTime.now().difference(start).inMilliseconds,
+        isError: result.isError,
+      ));
+      return result;
     } on McpProtocolError catch (e) {
-      if (!e.sessionExpired) rethrow;
+      if (!e.sessionExpired) {
+        server.recordFailure();
+        _addRecord(McpCallRecord(
+          time: start,
+          serverId: server.id,
+          serverName: server.displayName,
+          tool: toolName,
+          argsSummary: _argsSummary(args),
+          durationMs: DateTime.now().difference(start).inMilliseconds,
+          isError: true,
+          error: e.message,
+        ));
+        rethrow;
+      }
       _sessions.remove(server.id);
-      return attempt(null);
+      try {
+        final McpCallResult result = await attempt(null);
+        server.recordSuccess();
+        _addRecord(McpCallRecord(
+          time: start,
+          serverId: server.id,
+          serverName: server.displayName,
+          tool: toolName,
+          argsSummary: _argsSummary(args),
+          durationMs: DateTime.now().difference(start).inMilliseconds,
+          isError: result.isError,
+        ));
+        return result;
+      } catch (e2) {
+        server.recordFailure();
+        _addRecord(McpCallRecord(
+          time: start,
+          serverId: server.id,
+          serverName: server.displayName,
+          tool: toolName,
+          argsSummary: _argsSummary(args),
+          durationMs: DateTime.now().difference(start).inMilliseconds,
+          isError: true,
+          error: e2.toString(),
+        ));
+        rethrow;
+      }
     }
   }
+
+  static String _argsSummary(Map<String, dynamic> args) {
+    if (args.isEmpty) return '';
+    final String s = jsonEncode(args);
+    return s.length > 500 ? '${s.substring(0, 500)}…' : s;
+  }
+}
+
+class McpCallRecord {
+  const McpCallRecord({
+    required this.time,
+    required this.serverId,
+    required this.serverName,
+    required this.tool,
+    required this.argsSummary,
+    required this.durationMs,
+    this.isError = false,
+    this.error = '',
+  });
+
+  final DateTime time;
+  final String serverId;
+  final String serverName;
+  final String tool;
+  final String argsSummary;
+  final int durationMs;
+  final bool isError;
+  final String error;
 }
 
 /// 给模型看的工具名：`mcp_<服务器名>_<id 尾 4 位>_<工具名>`。
@@ -472,10 +600,60 @@ String _mcpSlug(String raw) {
 ///  · 服务器**没给** `inputSchema`（无参数工具很常见）；
 ///  · 给的 `type` 不是 `object`（比如直接给了某个字段的 schema）。
 Map<String, dynamic> sanitizeMcpSchema(dynamic raw) {
-  final Map<String, dynamic> m = _cleanSchema(raw);
+  final Map<String, dynamic> m = _expandRefs(_cleanSchema(raw), raw, 0);
   if (m['type'] != 'object') m['type'] = 'object';
   if (m['properties'] is! Map) m['properties'] = <String, dynamic>{};
   return m;
+}
+
+Map<String, dynamic> _expandRefs(
+  Map<String, dynamic> schema,
+  dynamic root,
+  int depth,
+) {
+  if (depth > 8) return schema;
+  if (schema.containsKey(r'$ref')) {
+    final String ref = schema[r'$ref']?.toString() ?? '';
+    if (ref.startsWith('#/')) {
+      final dynamic resolved = _resolveRef(ref, root);
+      if (resolved is Map) {
+        return _expandRefs(
+          _cleanSchema(resolved),
+          root,
+          depth + 1,
+        );
+      }
+    }
+    return <String, dynamic>{'type': 'object'};
+  }
+  final Map<String, dynamic> out = <String, dynamic>{};
+  schema.forEach((String k, dynamic v) {
+    if (k == 'properties' && v is Map) {
+      final Map<String, dynamic> props = <String, dynamic>{};
+      v.forEach((dynamic pk, dynamic pv) {
+        props[pk.toString()] = pv is Map
+            ? _expandRefs(_cleanSchema(pv), root, depth + 1)
+            : pv;
+      });
+      out[k] = props;
+    } else if (k == 'items' && v is Map) {
+      out[k] = _expandRefs(_cleanSchema(v), root, depth + 1);
+    } else {
+      out[k] = v;
+    }
+  });
+  return out;
+}
+
+dynamic _resolveRef(String ref, dynamic root) {
+  if (!ref.startsWith('#/')) return null;
+  final List<String> parts = ref.substring(2).split('/');
+  dynamic cur = root;
+  for (final String part in parts) {
+    if (cur is! Map) return null;
+    cur = cur[part];
+  }
+  return cur;
 }
 
 /// 各家 OpenAI 兼容接口都认的 JSON Schema 关键字。

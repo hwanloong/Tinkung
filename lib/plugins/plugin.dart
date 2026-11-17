@@ -5,12 +5,13 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../core/models.dart';
+import '../core/terminal_session.dart';
 import '../tools/risk.dart';
 import '../tools/tool.dart';
 
 /// 插件类型
 enum PluginKind {
-  /// 拼出一条 shell 命令交给 Shizuku 执行
+  /// 拼出一条 shell 命令交给自带的 Alpine 执行
   shell,
 
   /// 发一个 HTTP 请求
@@ -275,8 +276,11 @@ class PluginTool extends AgentTool {
         plugin.params,
         shellEscape: true,
       );
-      final r = await ctx.shizuku.exec(cmd, timeoutMs: 30000);
-      return 'exit=${r.code}\n${clampOutput(r.output.trim())}';
+      final ShellResult r = await TerminalSession.instance.run(
+        cmd,
+        timeout: const Duration(seconds: 30),
+      );
+      return 'exit=${r.exitCode}\n${clampOutput(r.combined.trim())}';
     }
 
     // HTTP 插件

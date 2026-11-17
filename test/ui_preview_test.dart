@@ -8,7 +8,7 @@
 // 产物在 test/goldens/ 下。
 import 'dart:io';
 
-import 'package:dsh_agent/core/folder_tool.dart';
+import 'package:dsh_agent/core/skill.dart';
 import 'package:dsh_agent/core/learning.dart';
 import 'package:dsh_agent/core/model_profile.dart';
 import 'package:dsh_agent/knowledge/knowledge_store.dart';
@@ -18,7 +18,6 @@ import 'package:dsh_agent/core/rules.dart';
 import 'package:dsh_agent/core/store.dart';
 import 'package:dsh_agent/core/terminal_session.dart';
 import 'package:dsh_agent/plugins/plugin.dart';
-import 'package:dsh_agent/shizuku/shizuku_service.dart';
 import 'package:dsh_agent/tools/webview_loader.dart';
 import 'package:dsh_agent/theme/app_theme.dart';
 import 'package:dsh_agent/ui/chat_page.dart';
@@ -148,8 +147,6 @@ Future<Widget> _buildApp({
   bool chat = false,
   Widget? home,
 }) async {
-  final ShizukuService shizuku = ShizukuService();
-
   // 字号必须在**构建主题之前**写进 AppFonts（主题里的 textTheme 会读它）。
   // 字体族本身是常量，不需要在这里设 —— 见 AppFonts 的注释。
   AppFonts.userScale = settings.fontScale;
@@ -203,7 +200,6 @@ Future<Widget> _buildApp({
                 settings: settings,
                 conversations: conversations,
                 plugins: plugins,
-                shizuku: shizuku,
                 workDir: Directory.systemTemp.path,
                 notes: notes,
                 tasks: tasks,
@@ -212,7 +208,6 @@ Future<Widget> _buildApp({
                 settings: settings,
                 conversations: conversations,
                 plugins: plugins,
-                shizuku: shizuku,
                 workDir: Directory.systemTemp.path,
                 notes: notes,
                 tasks: tasks,
@@ -640,6 +635,19 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 300));
 
+    // ---- 宠物是 GIF，必须给解码留真实时间 ----
+    //
+    // 图片解码不在 fake-async 的时钟里：测试只会 `pump` 的话，那块永远是
+    // **纯空白** —— 而布局其实是对的，很容易被误判成"宠物没渲染"。
+    //
+    // 用 `runAsync` 放行一段真实时间让它解完，再 `pump` 一帧把结果画出来。
+    // ⚠️ 不要换成 `precacheImage`：它在 fake-async 里等的是同一个时钟，
+    // 会**直接卡死**（试过，300 秒不返回）。
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+    });
+    await tester.pump(const Duration(milliseconds: 200));
+
     await expectLater(
       find.byType(MaterialApp),
       matchesGoldenFile('goldens/empty_chat.png'),
@@ -704,6 +712,71 @@ void main() {
       find.byType(MaterialApp),
       matchesGoldenFile('goldens/settings_page.png'),
     );
+  });
+
+  // 分类筛选：点顶上那颗「权限与安全」，整页只剩相关的几张卡片。
+  //
+  // 这张图钉住的是「分类条真的在过滤」—— 不是一排装饰性按钮。
+  testWidgets('settings category filter', (WidgetTester tester) async {
+    const MethodChannel bg = MethodChannel('dsh/bg');
+    const MethodChannel overlay = MethodChannel('dsh/overlay');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      bg,
+      (MethodCall call) async => false,
+    );
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      overlay,
+      (MethodCall call) async => false,
+    );
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(bg, null);
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        overlay,
+        null,
+      );
+    });
+
+    tester.view.physicalSize = const Size(1170, 2532);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      await _buildApp(
+        brightness: Brightness.light,
+        settings: settings,
+        conversations: conversations,
+        plugins: plugins,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+
+    tester.firstState<ScaffoldState>(find.byType(Scaffold)).openDrawer();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('设置 / 换头像'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ListTile, '设置'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    // 这颗胶囊在横向胶囊条的右侧、初始视口之外 —— 先把它滚进来，
+    // 否则 tap 落在空处，什么也不会发生。
+    await tester.ensureVisible(find.text('权限与安全'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('权限与安全'));
+    await tester.pumpAndSettle();
+
+    // 图要拍筛选后的**顶部**（还没滚走的样子）。
+    await expectLater(
+      find.byType(MaterialApp),
+      matchesGoldenFile('goldens/settings_category.png'),
+    );
+
+    // 「工作方式」属于外观，筛选之后立刻就不该还在列表里。
+    // （不能拿「模型」当反例 —— 顶上那颗胶囊本身就写着「模型」。）
+    expect(find.text('工作方式'), findsNothing);
+    // 属于这个分类的小节要能滚得到（ListView 懒加载，先滚动再断言）。
+    await scrollSettingsTo(tester, '安全确认');
+    expect(find.text('安全确认'), findsOneWidget);
   });
 
   // 高级设置页：**默认全是折叠的**。
@@ -1150,10 +1223,10 @@ void main() {
     addTearDown(tester.view.reset);
 
     // 造一个工具和一个插件，让面板有内容可列
-    FolderToolStore.instance.tools
+    SkillStore.instance.tools
       ..clear()
       ..add(
-        FolderTool(
+        Skill(
           id: 'pdf_merge',
           title: '合并 PDF',
           description: '把多个 PDF 合成一个',
@@ -1169,7 +1242,7 @@ void main() {
         ),
       )
       ..add(
-        FolderTool(
+        Skill(
           id: 'weekly_report',
           title: '周报整理',
           description: '把一周的笔记整理成周报',
@@ -1485,38 +1558,6 @@ void main() {
     await expectLater(
       find.byType(MaterialApp),
       matchesGoldenFile('goldens/composer_collapsed.png'),
-    );
-  });
-
-  // 单独渲染「插入网页内容」的卡片：整条会话里它在可视区之外，
-  // 只在 chat_light 里截不到。
-  // 「全部工具调用」那一行**点开之后**的样子。
-  //
-  // 折叠状态是交互里最容易写错的一环（点一下没反应、或者点开之后整块
-  // 不见了），而它只在"有工具调用 + 用户点过"时才出现 —— 别的预览图
-  // 永远看不到。所以这里从**点击**开始走完整条路。
-  testWidgets('tools unfolded', (WidgetTester tester) async {
-    tester.view.physicalSize = const Size(1170, 2532);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.reset);
-
-    await tester.pumpWidget(
-      await _buildApp(
-        brightness: Brightness.light,
-        settings: settings,
-        conversations: conversations,
-        plugins: plugins,
-        chat: true,
-      ),
-    );
-    await tester.pump(const Duration(milliseconds: 300));
-
-    await tester.tap(find.textContaining('次工具调用'));
-    await tester.pump(const Duration(milliseconds: 300));
-
-    await expectLater(
-      find.byType(MaterialApp),
-      matchesGoldenFile('goldens/tools_unfolded.png'),
     );
   });
 

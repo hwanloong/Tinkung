@@ -41,7 +41,7 @@ class StorageReport {
 /// 应用自己产生的文件的清点与清理。
 ///
 /// 工作目录布局（`workDir` 是应用的外部私有目录）：
-///   `shot_*.png`      截图（screen_capture 工具产出）
+///   `shot_*.png`      截图（打开图片 / 识图流程的中间产物）
 ///   `rec_*.mp4`       录屏
 ///   `attachments/`    聊天附件（选图、选文件时复制进来）
 ///

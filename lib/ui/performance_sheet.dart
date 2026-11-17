@@ -11,7 +11,6 @@ import '../core/store.dart';
 import '../core/timing_report.dart';
 import '../theme/app_theme.dart';
 import '../theme/glass.dart';
-import 'ios_switch.dart';
 import 'tool_line.dart';
 import 'widgets.dart';
 
@@ -372,46 +371,6 @@ class _PerformanceBodyState extends State<PerformanceBody> {
         // 工具调用明细**移到第二页**（左滑，或点上面的「工具调用」）：
         // 它是要按列对齐着看的表格，塞在这一列卡片里既看不全、
         // 也把指标卡片冲散了。见 [_toolCallPage]。
-
-        // ---------------- 工具步骤过程 ----------------
-        //
-        // 放在「性能」里而不是「界面」：它不改变外观，改变的是
-        // **一轮对话里有多少行是给过程而不是给结论的** ——
-        // 这直接影响"扫一眼能找到结果吗"，是信息密度问题。
-        _section(s, '工具步骤过程'),
-        _toggleRow(
-          s,
-          icon: Icons.unfold_less_rounded,
-          title: '折叠成一行',
-          subtitle: widget.settings.collapseToolSteps
-              ? '多步工具调用收成「执行了 N 步」，点开看细节。'
-              : '每一步都平铺成一行，调试时能一眼扫完整个调用链。',
-          value: widget.settings.collapseToolSteps,
-          onChanged: (bool v) =>
-              widget.settings.update(() => widget.settings.collapseToolSteps = v),
-        ),
-
-        const SizedBox(height: 8),
-        // ---------------- 极简过程 ----------------
-        //
-        // 和上面那张是**两档**，不是同一根滑杆上的两个刻度：
-        //  · 折叠：一行摘要，点得开；
-        //  · 极简：一行状态，点不开，跑完连这行都没有。
-        //
-        // 单独放一张卡是因为选它的人要的是「别让我看见过程」，
-        // 把两件事塞进一句话里说，反而两边都说不清。
-        _toggleRow(
-          s,
-          icon: Icons.visibility_off_outlined,
-          title: '极简过程',
-          subtitle: widget.settings.minimalProgress
-              ? '只留一行状态字，点开才是全部历史工具调用和文件修改。'
-              : '过程和细节都照常显示。',
-          value: widget.settings.minimalProgress,
-          onChanged: (bool v) => widget.settings.update(
-            () => widget.settings.minimalProgress = v,
-          ),
-        ),
 
         const SizedBox(height: 14),
         Center(
@@ -1232,74 +1191,6 @@ class _PerformanceBodyState extends State<PerformanceBody> {
     );
   }
 
-  /// 列表式开关行：图标块 + 标题 + 副信息 + 右侧开关。
-  ///
-  /// 和存储 / 插件 / MCP 三页的列表行同一套规格。整行可点（`onTap`
-  /// 和开关本身的 `onChanged` 是同一个动作），这样不必精确戳到那个开关。
-  Widget _toggleRow(
-    AppSurface s, {
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return SurfaceCard(
-      radius: AppRadius.card,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      // `ListTile`/`InkWell` 的水波纹画在最近的 Material 上，
-      // SurfaceCard 是带底色的装饰盒 —— 不垫一层就没有反馈。
-      child: Material(
-        type: MaterialType.transparency,
-        child: InkWell(
-          onTap: () => onChanged(!value),
-          borderRadius: BorderRadius.circular(AppRadius.field),
-          child: Row(
-            children: <Widget>[
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: AppColors.accent.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(AppRadius.code),
-                ),
-                child: Icon(icon, size: 18, color: AppColors.accent),
-              ),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      title,
-                      style: AppFonts.body(
-                        size: 14.5,
-                        weight: FontWeight.w600,
-                        color: s.text,
-                        height: 1.3,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: AppFonts.body(
-                        size: 12.5,
-                        color: s.muted,
-                        height: 1.4,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              IosSwitch(value: value, onChanged: onChanged),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   /// 两列网格。
   ///
   /// 一屏性能数字，原来是**一列卡片、每张一整行**：数字挤在右端，
@@ -1454,7 +1345,7 @@ String _fmtMs(int v) {
 
 /// 一条工具调用的输出，默认只露 5 行。
 ///
-/// 为什么不直接全文铺开：一次 `run_shell` 的输出可能是几十行日志，
+/// 为什么不直接全文铺开：一次 `linux` 命令的输出可能是几十行日志，
 /// 三条就能把面板撑到底 —— 而"清单"的价值在于**一眼扫完**。
 /// 需要细看时点一下展开，那时占满屏幕是合理的。
 class ToolOutputText extends StatefulWidget {

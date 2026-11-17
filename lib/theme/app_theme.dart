@@ -5,13 +5,17 @@ import 'package:flutter/services.dart';
 
 /// 字体。
 ///
-/// ## **全部走系统默认字体**
+/// ## 三套字族，由设置决定
 ///
-/// | 用在哪 | 字体 |
-/// |---|---|
-/// | AI 正文（消息、思考、工具输出） | 系统默认无衬线（`sans-serif`） |
-/// | 界面交互文字（按钮、标题、设置项…） | 系统默认无衬线（`sans-serif`） |
-/// | 代码 / 命令 / 路径 | 系统等宽（`monospace`） |
+/// | 用在哪 | 默认 | 可选 |
+/// |---|---|---|
+/// | AI 正文 / 界面文字 | `Inter`（内置） | 系统默认 / 衬线 / 等宽 / 窄体 / 细体 / 导入的字体 |
+/// | 中文（只做兜底） | `sans-serif` | 宋体 / 等宽 |
+/// | 代码 / 命令 / 路径 | `monospace` | 系统默认 / 衬线 / 无衬线 / 导入的字体 |
+///
+/// 三组选项在 `theme/font_options.dart`，设置页在 `ui/font_settings_page.dart`。
+/// 实际生效的族名由 `main.dart` 在**每次重建树之前**写进这里的静态字段
+/// （和 [userScale] 同一个时机）—— 晚一步这一帧就还是旧字体。
 ///
 /// ## 为什么不再打包 Noto Sans SC
 ///
@@ -23,51 +27,71 @@ import 'package:flutter/services.dart';
 ///    （比如消息正文和它下面的「复制」按钮）笔画粗细、字面大小都对不齐，
 ///    看起来像两个应用拼起来的。
 ///
-/// 系统字体本来就已经覆盖中文（各 ROM 内置 MiSans / HarmonyOS Sans /
-/// Roboto），深色浅色都有对应字重，而且**整个界面只有一套字形**。
-/// 这是 iOS 和绝大多数原生应用的做法：界面不该自带字体。
-///
-/// 代码仍然用等宽：对齐是代码可读性的前提，而系统字体族的
-/// `monospace` 一定存在（各平台都映射到自己的等宽字体）。
+/// 现在西文默认是内置的 Inter（1.6 MB），中文由系统字体接住
+/// （各 ROM 内置 MiSans / HarmonyOS Sans / Roboto）。
+/// 想要别的字体：设置里可以换系统族名，或者运行时导入 `.ttf` / `.otf`。
 class AppFonts {
   const AppFonts._();
 
-  /// **AI 正文字体族**。
-  ///
-  /// 和界面文字**同一族** —— 这是这一版的关键：正文和控件不再是两套字形。
-  /// 保留这个常量，是因为 10 处 `AppFonts.read(...)` 调用点都引用它；
-  /// 把值换成 [uiFamily] 之后，那些调用点一行都不用动。
-  static const String bodyFamily = uiFamily;
+  /// **AI 正文字体族**。和界面文字同一族 —— 正文和控件不再分两套字形。
+  static String get bodyFamily => uiFamily;
 
-  /// 界面交互文字用的族名。
+  /// 界面 / 正文字体族。
   ///
-  /// 打包的 **Inter**（见 `pubspec.yaml` 的 `fonts:`）：四个静态字面
-  /// 400/500/600/700，约 1.6 MB。拉丁字母、数字、标点都走它 ——
-  /// 这一版的观感（紧凑的字距、清楚的数字）主要就来自它。
+  /// 默认是打包的 **Inter**（见 `pubspec.yaml` 的 `fonts:`：四个静态字面
+  /// 400/500/600/700，约 1.6 MB）。空串 = 交给平台默认（`fontFamily: null`）。
   ///
-  /// ## 汉字不在这里，靠 `bodyFallback`
+  /// ## 汉字不在这里，靠 [bodyFallback]
   ///
   /// Inter 的 cmap 里**没有 CJK**。中文、日文、韩文全部落到
-  /// [bodyFallback] 的第一项 `sans-serif`，由系统解析成 Noto Sans CJK /
-  /// 苹方 / MiSans。中英混排时两种字形会挨在一起 —— 这是自带拉丁字体
-  /// 的必然代价，但 Inter 的 x-height 和主流中文字体接近，不会跳。
+  /// [bodyFallback] 的第一项，由系统解析成 Noto Sans CJK / 苹方 / MiSans。
+  /// 中英混排时两种字形会挨在一起 —— 这是自带拉丁字体的必然代价，
+  /// 但 Inter 的 x-height 和主流中文字体接近，不会跳。
   ///
   /// **不要删掉兜底链**：删了中文就是一片空心方块。
-  static const String uiFamily = 'Inter';
+  static String uiFamily = 'Inter';
 
   /// 正文的兜底族名。
   ///
-  /// 第一项 `sans-serif` 接住所有 Inter 没有的字形（中文、emoji 部分区段、
-  /// 罕见符号）。顺序有意义：系统族名必须在**最后**当作总兜底。
-  static const List<String> bodyFallback = <String>['sans-serif'];
+  /// 第一项是**用户选的中文字体**（没选就是 `sans-serif`），接住所有
+  /// 西文字体没有的字形。系统族名必须在**最后**当作总兜底。
+  static List<String> bodyFallback = const <String>['sans-serif'];
 
   /// 代码用等宽族名。
   ///
-  /// 直接写系统族名 `monospace`：Android 映射到 Droid Sans Mono / ROM 自带的
-  /// 等宽字体，iOS 映射到 Menlo。不再写 `Consolas` —— 那是 Windows 字体，
-  /// 真机上**根本不存在**，写了也只会多一层回退跳转。
-  static const String mono = 'monospace';
-  static const List<String> monoFallback = <String>['sans-serif'];
+  /// 默认直接写系统族名 `monospace`：Android 映射到 Droid Sans Mono / ROM
+  /// 自带的等宽字体，iOS 映射到 Menlo。不再写 `Consolas` —— 那是 Windows
+  /// 字体，真机上**根本不存在**，写了也只会多一层回退跳转。
+  static String mono = 'monospace';
+  static List<String> monoFallback = const <String>['monospace', 'sans-serif'];
+
+  /// 把设置里选的三套字体写进静态字段。
+  ///
+  /// 空串 = 交给平台；[codeFallback] 一般以 `monospace` 打头，
+  /// 保证哪怕主族名不存在，代码也还是等宽的。
+  static void applyFonts({
+    required String latinFamily,
+    required String cjkFamily,
+    required String codeFamily,
+    List<String> codeFallback = const <String>['monospace', 'sans-serif'],
+  }) {
+    uiFamily = latinFamily.trim();
+    final List<String> body = <String>[];
+    final String cjk = cjkFamily.trim();
+    if (cjk.isNotEmpty) body.add(cjk);
+    if (!body.contains('sans-serif')) body.add('sans-serif');
+    bodyFallback = List<String>.unmodifiable(body);
+
+    final String code = codeFamily.trim();
+    mono = code.isEmpty ? 'monospace' : code;
+    final List<String> monoFb = <String>[
+      for (final String f in codeFallback)
+        if (f.trim().isNotEmpty) f,
+    ];
+    if (!monoFb.contains(mono)) monoFb.insert(0, mono);
+    if (!monoFb.contains('sans-serif')) monoFb.add('sans-serif');
+    monoFallback = List<String>.unmodifiable(monoFb);
+  }
 
   /// 用户额外放大的倍数（设置里的滑杆）
   static double userScale = 1.0;
@@ -159,7 +183,7 @@ class AppFonts {
     double height = 1.6,
   }) {
     return TextStyle(
-      fontFamily: mono,
+      fontFamily: mono.isEmpty ? null : mono,
       fontFamilyFallback: monoFallback,
       fontSize: size * scale,
       fontWeight: weight,
@@ -191,7 +215,10 @@ class AppFonts {
     double letterSpacing = 0.1,
   }) {
     return TextStyle(
-      fontFamily: bodyFamily,
+      // `read()` 是"要读的内容"：AI 正文、思考、工具输出。
+      // 和 [body] 同一族，但独立成一个函数 —— 将来若要给正文单独换字体，
+      // 改这一处就够。
+      fontFamily: bodyFamily.isEmpty ? null : bodyFamily,
       fontFamilyFallback: bodyFallback,
       fontSize: size * scale,
       fontWeight: weight,
@@ -287,7 +314,7 @@ class AppColors {
   static Color success = const Color(0xFF34C759);
   static Color warning = const Color(0xFFFF9500);
 
-  /// 中性色：用于「无 Shizuku」这类「不是错误、只是缺失」的状态，
+  /// 中性色：用于「能力暂不可用」这类「不是错误、只是缺失」的状态，
   /// 避免用红色吓唬用户以为应用坏了。
   static Color neutral = const Color(0xFF8E8E93);
 
@@ -307,16 +334,23 @@ class AppColors {
   /// [dark] 决定强调色用哪一档 —— 同一个橙在深底上需要提亮，
   /// 否则和背景的对比度不够。
   static void applyScheme(ColorScheme scheme, {required bool dark}) {
-    accent = dark ? darkAccent : defaultSeed;
-    onAccent = const Color(0xFFFFFFFF);
-    lightBg = dark ? darkPage : lightPage;
-    darkBg = dark ? darkPage : lightPage;
-    // iOS 深色模式下的系统色是同一支色提亮一档（不是换成另一个色相）。
+    // 强调色、页面底、压在强调色上的字，全部来自**当前这一套** scheme。
+    //
+    // 从前这里写死陶土橙 + iOS 灰：用户换种子色时只有 Material 自带
+    // 组件会变，全项目 78 处 `AppColors.accent` 和 15 处
+    // `AppColors.lightBg` 还停在旧值上 —— 那正是"半套 Material You"。
+    // 现在三处同源（ThemeData.colorScheme / AppSurface / 这里）。
+    accent = scheme.primary;
+    onAccent = scheme.onPrimary;
+    lightBg = scheme.surface;
+    darkBg = scheme.surface;
+    research = scheme.primary;
+    // 语义色仍用固定系统色：错误、成功、警告是状态信号，
+    // 不该跟着主题色换色相（不然"红=出错"这条直觉就失效了）。
     danger = dark ? const Color(0xFFFF453A) : const Color(0xFFFF3B30);
     success = dark ? const Color(0xFF30D158) : const Color(0xFF34C759);
     warning = dark ? const Color(0xFFFF9F0A) : const Color(0xFFFF9500);
-    neutral = dark ? const Color(0xFF8E8E93) : const Color(0xFF8E8E93);
-    research = dark ? darkAccent : defaultSeed;
+    neutral = const Color(0xFF8E8E93);
   }
 }
 
@@ -493,10 +527,28 @@ class AppSurface extends ThemeExtension<AppSurface> {
   ///
   /// 保留 [s] 参数只是为了将来若要做"跟随系统动态色"时有地方接。
   factory AppSurface.fromScheme(ColorScheme s, {required bool dark}) {
-    final AppSurface base = dark ? AppSurface.dark : AppSurface.light;
-    // 语义色跟着配色方案走（M3 的 error 等仍然来自系统），
-    // 但**结构色不跟** —— 见上面的说明。
-    return base.copyWith(scrim: s.scrim);
+    // M3 给了一整套明度阶梯，直接用，不要再拿固定灰阶覆盖：
+    //  · surface = 页面底
+    //  · surfaceContainerLow = 卡片（比页面底亮/深一档）
+    //  · High / Highest = 胶囊、代码块、输入框
+    // tonalSpot 下每一档都带一点种子色的色相，这正是 Material You
+    // 的辨识度 —— 换种子色时整屏一起换，而不是只有按钮换。
+    return AppSurface(
+      surface: s.surfaceContainerLow,
+      border: s.outlineVariant,
+      codeBg: s.surfaceContainerHighest,
+      chipBg: s.surfaceContainerHigh,
+      text: s.onSurface,
+      muted: s.onSurfaceVariant,
+      // 顶栏/输入栏是半透明 + BackdropFilter：用页面色加不透明度，
+      // 模糊之后仍然和页面连成一片。
+      barBackground: s.surface.withValues(alpha: 0.92),
+      scrim: s.scrim,
+      isDark: dark,
+      pageBg: s.surface,
+      // 用户气泡比卡片再高一档色调：和页面底拉得开，又仍是同一支色相。
+      bubbleBg: s.surfaceContainerHigh,
+    );
   }
 
   /// 页面底色。所有 `Scaffold(backgroundColor: …)` 都该用它。
@@ -610,105 +662,50 @@ class AppTheme {
   ///
   /// （参数名不能用 `dynamic`：它在这个文件里同时是个内建类型名，
   /// `ThemeExtension<dynamic>` 会因此解析失败。）
-  static ThemeData light({ColorScheme? fromSystem}) =>
-      _build(Brightness.light, fromSystem: fromSystem);
+  static ThemeData light({Color? seed, ColorScheme? fromSystem}) =>
+      _build(Brightness.light, seed: seed, fromSystem: fromSystem);
 
-  static ThemeData dark({ColorScheme? fromSystem}) =>
-      _build(Brightness.dark, fromSystem: fromSystem);
+  static ThemeData dark({Color? seed, ColorScheme? fromSystem}) =>
+      _build(Brightness.dark, seed: seed, fromSystem: fromSystem);
 
-  static ThemeData _build(Brightness brightness, {ColorScheme? fromSystem}) {
+  static ThemeData _build(
+    Brightness brightness, {
+    Color? seed,
+    ColorScheme? fromSystem,
+  }) {
     final bool isDark = brightness == Brightness.dark;
 
-    // 系统给了动态配色就用它，否则从种子色推。
-    //
-    // **这里不再覆盖 `primary` / `surface`。** 从前为了让强调色正好等于
-    // `#007AFF`，把 `fromSeed` 推出来的 primary 又改回种子色本身 ——
-    // 那正是"半套 Material You"：只有强调色跟着走，表面色是写死的 iOS 灰。
-    // M3 的整套色调关系（primary 与 onPrimary 的对比度、
-    // surfaceContainer 各档的明度阶梯）都建立在"不手工干预"之上。
-    //
-    // ---- 中性种子色必须走 monochrome ----
-    //
-    // 「纯灰白主题」实现不了，根源就在这里：`tonalSpot`（默认变体）会
-    // 给每个色调**加上种子的色相**。而灰色的 HCT 色相是未定义的，
-    // 算法回落到一个固定的冷色 —— 于是明明选了灰色，
-    // 开关、选中项、chip 显示的还是**偏蓝**。
-    //
-    // 所以：种子色饱和度极低时（用户就是想要素色），
-    // 换成 `monochrome` 变体 —— 它是 M3 专门为"无色"提供的方案，
-    // 所有色调的 chroma 都是 0，出来的是真正的灰阶，不带任何色偏。
-    // 有彩色种子仍然走 `tonalSpot`，那套观感更好。
-    // ---- Android 16/17 风格：Material 3 Expressive ----
-    //
-    // 前面几轮做的是 iOS 中性风（表面固定灰阶、强调色近黑/系统蓝）。
-    // 那套已经**推翻**，现在回到 Material 3 的彩色色调体系 ——
-    // 这正是 Android 16 起系统界面的样子：表面带一点主题色的色相、
-    // 大圆角、高饱和强调色。
-    //
-    // 关键差别在**表面怎么来**：
-    //  · iOS 方案：手工写死 `#F2F2F7`，表面永远是中性灰；
-    //  · M3 方案：`fromSeed` 从种子色推整套色调，`surface` 会带上
-    //    种子的色相（紫蓝种子 → 表面是极淡的紫灰）。这就是
-    //    "Material You / Expressive" 的辨识度所在，不是可选项。
-    //
-    // 变体用 `vibrant`：`tonalSpot`（默认）偏保守，`vibrant` 会把
-    // 强调色的 chroma 拉高，接近 Android 16 里那种更"跳"的配色。
-    // `monochrome` 那条分支删掉了 —— 它只为"纯灰白"服务，而现在
-    // 要的就是有颜色。
-    ColorScheme scheme =
+    // 系统动态配色（Android 12+ 按壁纸取色）优先；否则按用户选的种子色
+    // 生成**整套** M3 token。tonalSpot 是 Material You 的标准变体：
+    // primary / secondary / tertiary / surfaceContainer* 全部带同一支
+    // 色相的色调，而不是只有强调色变色。
+    final ColorScheme scheme =
         fromSystem ??
         ColorScheme.fromSeed(
-          seedColor: AppColors.defaultSeed,
+          seedColor: seed ?? AppColors.defaultSeed,
           brightness: brightness,
-          dynamicSchemeVariant: DynamicSchemeVariant.monochrome,
+          dynamicSchemeVariant: DynamicSchemeVariant.tonalSpot,
         );
 
-    // ---- 结构色一律用固定灰阶，不从种子色推 ----
+    // ---- 一套 scheme 喂给三处，换种子色才真的整屏一起换 ----
     //
-    // `fromSeed` 推出来的 surface 会带一点种子的色相（蓝种子 → 表面是
-    // 极淡的蓝灰）—— 那正是"界面到处泛着一点蓝"的来源，也是 iOS 风格
-    // 最不该有的东西：**iOS 的表面是纯中性的，颜色只出现在控件上**。
+    // 从前这里会 `scheme.copyWith(...)` 把 primary 改回固定陶土橙、
+    // surface / surfaceContainer* 改回固定 iOS 灰阶 —— 等于把 fromSeed
+    // 刚推出来的整套色调关系丢掉，只留下按钮颜色。那就是"半套
+    // Material You"，也是旧版换种子色看不出效果的根本原因。
     //
-    // 所以结构色钉死在 [AppSurface] 上，只让 M3 自己的组件（对话框、
-    // 导航栏、按钮）通过 ColorScheme 拿到同一份灰阶。
-    //
-    // 换句话说：ColorScheme 在这里不是"配色来源"，而是"把已经定好的
-    // 颜色翻译给 Material 组件听的翻译层"。
-    final AppSurface structure = AppSurface.fromScheme(scheme, dark: isDark);
-    // **这里不能用 `AppColors.accent`**：它是全局静态，而 light / dark
-    // 两份主题都会被构建 —— 读到的可能是另一份刚写进去的值。
-    // 直接按当前明暗取字面量，两份主题各自确定。
-    scheme = scheme.copyWith(
-      primary: isDark ? AppColors.darkAccent : AppColors.defaultSeed,
-      onPrimary: AppColors.onAccent,
-      surface: structure.pageBg,
-      onSurface: structure.text,
-      onSurfaceVariant: structure.muted,
-      outline: structure.border,
-      outlineVariant: structure.border,
-      surfaceContainerLowest: structure.pageBg,
-      surfaceContainerLow: structure.pageBg,
-      surfaceContainer: structure.surface,
-      surfaceContainerHigh: structure.surface,
-      surfaceContainerHighest: structure.codeBg,
-      error: AppColors.danger,
-    );
-
-    // 把强调色/语义色刷新成当前配色方案的值。
-    //
-    // **必须在建 AppSurface 之前调用**，而且它改的是全局静态字段 ——
-    // 全项目 78 处 `AppColors.accent` 靠这一步才跟着动态配色变。
+    // 现在三处同源：
+    //  · Material 自带组件 → [ThemeData.colorScheme]；
+    //  · 自定义组件（49 处 `AppSurface.of`）→ [AppSurface.fromScheme]；
+    //  · 拿不到 context 的静态调用（78 处 `AppColors.accent`）→
+    //    [AppColors.applyScheme]。
     AppColors.applyScheme(scheme, dark: isDark);
-
     final AppSurface surface = AppSurface.fromScheme(scheme, dark: isDark);
 
     final ThemeData base = ThemeData(
-      // **关掉 Material 3。** M3 就是 Material You：它的圆角族、
-      // 状态层、surfaceTint 抬升、以及那套"每个组件都带主题色底色"
-      // 的设计语言，和目标观感（iOS 的平面 + 细分隔线）是冲突的。
-      //
-      // 关掉之后组件退回 M2 的平面形态，再叠加下面那些 iOS 化的覆盖，
-      // 出来的就是"灰白 + 细分隔线 + 无阴影"的样子。
+      // M3 必须开：整套 Material You 的组件形态、状态层、色调 token
+      // 都靠它。下面那些覆盖只调圆角/字体/去掉过重的抬升，
+      // 不再把配色改回固定值。
       useMaterial3: true,
       brightness: brightness,
       colorScheme: scheme,

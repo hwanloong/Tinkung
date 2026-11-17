@@ -12,7 +12,6 @@ import 'package:dsh_agent/core/chat_recall.dart';
 import 'package:dsh_agent/core/models.dart';
 import 'package:dsh_agent/core/productivity.dart';
 import 'package:dsh_agent/core/store.dart';
-import 'package:dsh_agent/shizuku/shizuku_service.dart';
 import 'package:dsh_agent/tools/chat_recall_tool.dart';
 import 'package:dsh_agent/tools/tool.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,7 +31,6 @@ Conversation _conv(
 
 ToolContext _ctx(Settings s, String convId) => ToolContext(
   settings: s,
-  shizuku: ShizukuService(),
   conversation: Conversation(id: convId, title: '当前对话'),
   workDir: Directory.systemTemp.path,
   searchApiKey: '',

@@ -294,7 +294,7 @@ type Mark = {
 };
 
 type Tool = {
-  name: string;    // 'python' / 'termux' / 'web' / 'file_op' …
+  name: string;    // 'python' / 'linux' / 'web' / 'file_op' … 
   summary: string; // 目前等于 name（保留字段）
   status: 'awaitingConfirm' | 'running' | 'success' | 'failed' | 'rejected';
   args: string;    // 工具参数的原始 JSON 字符串

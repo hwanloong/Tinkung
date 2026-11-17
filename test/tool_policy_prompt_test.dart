@@ -5,7 +5,7 @@
 import 'dart:io';
 
 import 'package:dsh_agent/ai/agent.dart';
-import 'package:dsh_agent/core/folder_tool.dart';
+import 'package:dsh_agent/core/skill.dart';
 import 'package:dsh_agent/core/learning.dart';
 import 'package:dsh_agent/core/memory.dart';
 import 'package:dsh_agent/core/rules.dart';
@@ -19,7 +19,7 @@ void main() {
     await MemoryStore.configure(File('${tmp.path}/memory.json'));
     await RuleStore.configure(File('${tmp.path}/rules.json'));
     await LearningStore.configure(File('${tmp.path}/learning.json'));
-    await FolderToolStore.instance.configure(Directory('${tmp.path}/tools'));
+    await SkillStore.instance.configure(Directory('${tmp.path}/tools'));
   });
 
   tearDownAll(() async {
@@ -29,10 +29,20 @@ void main() {
   });
 
   test('system prompt 明确限制非联网工具', () {
-    final String p = buildSystemPrompt(shizukuReady: true);
+    final String p = buildSystemPrompt();
     expect(p, contains('默认只联网'));
     expect(p, contains('不到非用不可'));
     expect(p, contains('不要为了'));
     expect(p, contains('能直接回答或用联网解决'));
+  });
+
+  test('system prompt 的公式指引转义正确', () {
+    // 提示词是一个普通三引号字符串，`$` 和 `\` 都必须转义。
+    // 转错了模型看到的会是变了样的示例，公式就更写不对了。
+    final String p = buildSystemPrompt();
+    expect(p, contains(r'$...$'));
+    expect(p, contains(r'$$...$$'));
+    expect(p, contains(r'\frac{...}{...}'));
+    expect(p, isNot(contains(r'\\frac')));
   });
 }

@@ -40,9 +40,9 @@ void main() {
   });
 
   group('同一个字形不能被两种标签共用', () {
-    test('sheller 和 run_shell 的图标必须不同', () {
+    test('sheller 和 linux 的图标必须不同', () {
       final (IconData a, String _) = ToolDisplay.of('sheller');
-      final (IconData b, String _) = ToolDisplay.of('run_shell');
+      final (IconData b, String _) = ToolDisplay.of('linux');
       expect(
         a,
         isNot(b),

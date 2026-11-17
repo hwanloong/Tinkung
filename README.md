@@ -2,14 +2,14 @@
 
 </p>
 
-# PrivTasker
+# Tinkung
 
-> 跑在 Android 手机上的 AI Agent。能对话、能调工具、能实际操作系统 —— 而不只是聊天。
+> 跑在 Android 手机上的 AI Agent。能对话、能调工具、能在自带的 Linux 里实际干活 —— 而不只是聊天。
 
-一个自用的实验性项目：把大模型接到 `Shizuku` 上，让 AI 真的能在手机上执行命令、管理应用、
-读写文件、改系统设置、截屏识图，同时把「笔记」和「任务」也交给它管理。
+一个自用的实验性项目：把大模型接到**应用自带的 Alpine Linux**（proot）上，让 AI 真的能执行命令、
+读写文件、装包跑脚本、联网搜资料，同时把「笔记」和「任务」也交给它管理。
 
-**名字含义**：Private + Tasker。隐私优先（数据都在本机）+ 任务助理。
+**名字含义**：Tinkung = Tinker + 工（工作台）。隐私优先（数据都在本机）+ 任务助理。
 
 ---
 
@@ -31,7 +31,7 @@
 - [已知限制](#已知限制)
 - [许可](#许可)
 
-> **改代码之前先读 [工程手册](docs/README.md)。**
+> **改代码之前先读 [工程手册](docs/README.md)，架构与流程图见 [架构图](docs/ARCHITECTURE.md)。**
 > 那份文档讲的是代码的实际形状：模块职责、启动流程、工具系统的三条判断原则、
 > 输入框与压缩的具体实现、怎么加工具/加设置项、以及为什么某些地方不能那么改。
 
@@ -42,9 +42,8 @@
 | 类别 | 说明 |
 |---|---|
 | **对话 + 工具调用** | 接入 DeepSeek 官方 API，流式输出、多轮、函数调用（tool calling） |
-| **系统操作** | 通过 Shizuku 拿到 shell 权限，执行命令 / 管理应用 / 读写文件 / 改系统设置 / 截图录屏 |
-| **内嵌 Python** | **应用自带 CPython 3.13**，零配置。Agent 能写代码并**立刻运行验证** —— 这是从"给建议"到"交付"的分水岭 |
-| **Termux 连接** | 请用户装的 Termux 代跑命令，拿到完整 Linux 生态（git / ffmpeg / `pkg install` 2000+ 包） |
+| **内置 Linux** | **应用自带 Alpine**（proot + 静态 `apk`），启动时自动解压，零配置。命令、装包、脚本都能跑 |
+| **Python** | 用 Alpine 里的 `python3`，缺解释器时自动 `apk add`。Agent 能写代码并**立刻运行验证** —— 这是从"给建议"到"交付"的分水岭 |
 | **笔记** | 增删改查 + **文件夹归类** + 标签筛选 + 搜索；独立编辑页支持 **Markdown / 纯文本**。**Agent 可以直接读写** |
 | **任务** | 标题 / 详情 / **执行时间** / 完成状态。**Agent 可以直接读写** |
 | **自定义规则** | **当……的时候，就……** —— 用户能写，Agent 也能写（改善长期偏好，每次改动都要确认） |
@@ -57,9 +56,8 @@
 | **记忆** | 关于用户的长期事实，Agent 自己判断该记什么。可开关、可逐条删。每轮对话自动带上 |
 | **TeenSpace** | 成人内容 / 政治议题 / 题目查询三档回答尺度。**是提示词指导，不是内容过滤器** |
 | **工作空间** | 截图、录屏、附件、插件脚本的存放目录可换到你能直接打开的文件夹 |
-| **远程控制** | **尚未实现**，只有占位页面（写清了为什么先不做） |
 | **液态玻璃 UI** | 基于 `liquid_glass_widgets`：玻璃按钮、玻璃分段控件（顶栏与输入栏已改成无背板） |
-| **字体** | 固定 Inter（拉丁）+ 系统字体（中文），**不提供切换** |
+| **字体** | 英文 / 中文 / 代码三套可分别选（含导入 `.ttf` `.otf`），入口在设置 → 外观 |
 
 ---
 
@@ -94,8 +92,9 @@
   想改成跟随系统只需要改 `main.dart` 里两行。
 - **有 Material 的水波纹和状态层**。从前这里**故意**关掉了（`NoSplash` + 透明高亮），
   因为水波纹是 Material 最强的视觉签名，和当时那套 iOS 观感冲突。
-- **字体固定**：拉丁字母和数字用 Inter，中文由系统字体兜底。
-  设置里**不提供**字体切换（详见「字体与视觉」）。
+- **字体可换**：默认拉丁字母和数字用 Inter，中文由系统字体兜底；
+  设置 → 外观 → 字体 里可以分别换英文 / 中文 / 代码字体，
+  也可以导入自己的 `.ttf` / `.otf`（详见「字体与视觉」）。
 - **对话页输入栏是一个整体的大圆角框**：上面是输入框，下面一行是
   `+`（附件）→ **模型选择器**（显示当前模型，点一下换）→ 发送键。
   输入栏和顶栏**都没有背景板**，消息从它们后面穿过并在边缘渐隐。
@@ -240,31 +239,16 @@ AI 的回复**没有气泡**，Markdown 直接平铺在背景上（标题、列�
 
 ## 首次配置
 
-## 首次配置
+### 1. 内置环境（自动，无需操作）
 
-### 1. 安装并启动 Shizuku
+应用自带一套 **Alpine Linux**（proot + 约 4MB 根文件系统 + 静态 `apk`）。
+第一次启动时会在后台自动解压（几秒，解完占约 20MB），之后一直保留。
+**不需要额外安装任何东西、也不用改任何系统设置。**
 
-从 [Shizuku 官网](https://shizuku.rikumo.com/) 或应用商店安装，按它的指引启动服务
-（通常需要通过 ADB 或 root 启动一次）。
+第一次用 Python 时，应用会自动 `apk add --no-cache python3`（需要联网；
+也可以自己在终端里装别的包，装完会一直留着）。
 
-> **Shizuku 给的是 shell(adb) 权限，不是 root。** `pm`、`settings`、`screencap`、
-> `/sdcard` 读写都能用；但真正需要 root 的操作（改 `/system`、读其他应用私有目录）做不到，
-> 除非手机已 root 且 Shizuku 以 root 模式启动。
-
-### 2. 安装本应用并授权
-
-打开后顶部有一个**状态小圆点**：
-
-| 颜色 | 含义 |
-|---|---|
-| 🟢 绿 | 已就绪 |
-| 🟠 橙 | 检测到 Shizuku，但没授权 —— **点它去授权** |
-| ⚪ 灰 | 没检测到 Shizuku |
-
-> **没授权也能用。** 联网、识图、笔记、任务、普通对话都不依赖它。
-> 未授权时应用会**跳过所有需要 shell 的工具**，模型不会去调用它们然后拿到一堆「无法执行」。
-
-### 3. 绑定模型
+### 2. 绑定模型
 
 首页底部的**模型卡片** → 「添加」或「批量导入」。
 
@@ -301,12 +285,12 @@ AI 的回复**没有气泡**，Markdown 直接平铺在背景上（标题、列�
 **参数**（温度 / 思考深度 / 工具调用上限）在输入框上方的**模型选择器**里，
 它们跟着当前模型存，换模型就换成它自己那套。
 
-### 4.（建议）开启悬浮窗权限
+### 3.（建议）开启悬浮窗权限
 
-**设置 → 安全 → 悬浮窗确认 → 去授权**。
+**设置 → 安全确认 → 悬浮窗确认 → 去授权**。
 
-工具经常把别的应用切到前台（打开应用、跳系统设置页），没有悬浮窗权限时确认框会被盖住，
-你必须切回来才能点。
+长任务在后台跑的时候，确认框没有悬浮窗权限就只能在应用内显示；开了悬浮窗后，
+切到别的应用也能看到并点确认。
 
 ---
 
@@ -314,17 +298,16 @@ AI 的回复**没有气泡**，Markdown 直接平铺在背景上（标题、列�
 
 模型能调用的工具。**风险分级是自动的**，见下一节。
 
-### 系统类（需要 Shizuku）
+### 执行类（内置 Alpine）
 
 | 工具 | 能力 |
 |---|---|
-| `run_shell` | 执行任意 shell 命令 |
-| `app_manage` | list / info / path / clear / uninstall / disable / enable / force_stop / install |
+| `linux` | 执行任意命令（`apk add`、`grep`、`ffmpeg`、编译……）；文件写进 `/shared` 才拿得到 |
+| `python` | 执行 Python 代码（Alpine 里的 `python3`，首次自动安装） |
 | `file_op` | list / read / write / append / delete / move / copy / mkdir / search / stat |
-| `system_settings` | get / put / list / brightness / volume / wifi / data / airplane / rotate |
-| `screen_capture` | screenshot / record |
+| `sheller` | 跑一段 sh / py，用句柄把大内容喂给命令（不拼进命令行） |
 
-### 通用类（不依赖 Shizuku）
+### 通用类
 
 | 工具 | 能力 |
 |---|---|
@@ -334,36 +317,31 @@ AI 的回复**没有气泡**，Markdown 直接平铺在背景上（标题、列�
 | **`generate_image`** | **生图**。只在模型勾了「支持生成图片」时才注册；走 `/images/generations`，落盘后返回路径 |
 | `notes` | list / search / read / create / update / delete |
 | `tasks` | list / create / update / complete / reopen / delete |
-| **`python`** | **执行 Python 代码**。应用自带解释器，**会话连续**（像 REPL），能自己看报错改代码 |
-| **`termux`** | 在 Termux 里执行命令。完整 Linux 环境，可 `pkg install` |
+| `filesearch` / `reader` / `writer` | 找文件 / 读片段 / 定点改写（不启动 Linux，直接走 `dart:io`） |
 | **`rules`** | 管理自定义规则。`list` 自动执行，写操作**全部弹确认框** |
 
 > `read_image` 和 `generate_image` 是**两个方向**：前者是"把图给模型看"
 > （多模态输入），后者是"让模型画一张图"（多模态输出）。所以模型档案上
 > 是两个独立开关 —— 只看得懂图的模型和只会画图的模型都存在。
 
-### 内嵌 Python 里有什么
+### Python 里有什么
 
 ```python
-# agent 可以直接 import，用户零配置
-import docx, pptx, openpyxl, PIL, requests, bs4
+# 标准库随 python3 一起装；第三方库按需 apk add
+import json, re, csv, sqlite3, statistics
 ```
 
-| 已烤进 APK 的包 | 用途 |
+| 想用什么 | 怎么装 |
 |---|---|
-| `python-docx` | **Word 读写** |
-| `python-pptx` | **PPT 读写** |
-| `openpyxl` | Excel 读写 |
-| `lxml` | 上面两个的依赖（C 扩展，Chaquopy 有编好的 Android wheel） |
-| `pillow` | 图像处理 |
-| `requests` + `beautifulsoup4` | HTTP 与网页解析 |
+| 标准库（json / re / csv / sqlite3 / statistics …） | 不用装 |
+| numpy / pandas / matplotlib / Pillow | `apk add py3-numpy py3-pandas py3-matplotlib py3-pillow` |
+| docx / pptx / openpyxl | `apk add py3-python-docx py3-openpyxl`（pptx 可用 pip 或手写 XML） |
 
-> ⚠️ **Chaquopy 没有运行时的 pip。** 这些包在**构建时**装进 APK，用户装不了任何东西 ——
-> 想加包必须改 `android/app/build.gradle.kts` 的 `pip {}` 块并重新构建。
-> 需要任意装包时走 `termux`。
+> **Python 跑在 Alpine 里**，不是嵌进应用进程的解释器 —— 所以装包就是 `apk add`，
+> 装完一直留着，终端里也用同一个 `python3`。
 >
-> **分工**：固定能力烤进 APK（用户零配置）／任意需求走 Termux（用户自己装）／
-> 把能力组合成新工具用插件（运行时加）。
+> **分工**：简单计算/数据处理用 `python`（省掉样板）；要装包、要跑 shell、
+> 要用别的语言时用 `linux`（同一个环境）。
 
 ### 富卡片协议
 
@@ -485,7 +463,7 @@ mindmap
 - ❌ **DeepSeek 的 `web_search` 已被官方关闭**。实测响应里不再出现 `web_search_call`
   （官方文档一直把它标为「忽略」）。这条通道已从代码中移除。
 - ❌ **自建搜索服务已移除**。它要自己部署 Docker + SearXNG，而且跑在手机上
-  仍然受手机网络限制 —— 门槛高、收益低。需要任意装包时改走 Termux。
+  仍然受手机网络限制 —— 门槛高、收益低，已不再作为候选通道。
 - ❌ **DuckDuckGo 网页抓取已被反爬封死**（实测 HTTP 202 + anomaly 页、零结果）。
 - ❌ **Bing 直连已移除**（实测在目标设备上不可用）。
 - ⚠️ **内置浏览器依赖系统 WebView 的版本**。国产 ROM 上它常年不更新，
@@ -497,18 +475,24 @@ mindmap
 
 ### 字体
 
-**只有一套字体，而且不可切换：Inter。**
-设置里那个「字体方案」选择器已经删掉了 —— 字体是产品决定，不是设置项。
+**三套字体可分别自定义**（设置 → 外观 → 字体）：
 
-| 用途 | 字体 |
-|---|---|
-| 界面与正文（拉丁字母、数字、标点） | Inter 400 / 500 / 600 / 700（打包在 `assets/fonts/`） |
-| 正文（中文） | **系统字体**，由 `AppFonts.bodyFallback` 的 `sans-serif` 兜底 |
-| 代码块 / 行内代码 | 系统等宽（`monospace` 族名），中文同样走 `sans-serif` 兜底 |
+| 用途 | 默认 | 可选 |
+|---|---|---|
+| 界面与正文（拉丁字母、数字、标点） | **Inter**（打包在 `assets/fonts/`） | 系统默认 / 衬线 / 等宽 / 窄体 / 细体 / 导入的 `.ttf` `.otf` |
+| 正文（中文） | **系统字体**（`sans-serif` 兜底） | 宋体 / 等宽 / 导入的字体 |
+| 代码块 / 行内代码 | 系统等宽（`monospace` 族名） | 系统默认 / 衬线 / 无衬线 / 导入的字体 |
 
 混排靠 Flutter 的 `fontFamilyFallback` **逐字符**回退实现：英文字符在
-Inter 里有字形，直接命中；汉字在它里面没有字形，于是落到系统字体。
+Inter 里有字形，直接命中；汉字在它里面没有字形，于是落到兜底链里的中文字体。
 不需要手工切分字符串。
+
+> 设置里外观页只有**一个「字体」入口**（右侧显示当前组合），点进去才是
+> 完整选项 —— 三组字体 × 每组五六个选项直接摊开会变成一堵墙。
+
+> **导入字体是运行时加载**（`core/custom_font.dart`）：选中的文件会复制到
+> `docs/fonts/`，用 `FontLoader` 注册成 `UserFont*` 家族。字体文件不进仓库，
+> 没有再分发问题；代价是**换设备要重新选一次**，文件被删掉时自动回落。
 
 > **中文兜底链不能删。** Inter 是**拉丁字体**，`cmap` 里没有任何 CJK 字形。
 > 而在这个应用里中文是**主体**（界面文案、模型回答、工具输出全是中文）。
@@ -577,9 +561,9 @@ Inter 里有字形，直接命中；汉字在它里面没有字形，于是落�
 | 层面 | 选型 |
 |---|---|
 | UI | Flutter 3.47 / Dart 3.13 |
-| 原生 | Kotlin（Shizuku 桥、悬浮窗） |
+| 原生 | Kotlin（proot 执行桥、悬浮窗、文件/锁/语音通道） |
 | 模型 | DeepSeek 官方 API（OpenAI 兼容） |
-| 系统权限 | Shizuku 13.1.5（AIDL 直连） |
+| 内置 Linux | Alpine minirootfs + proot（`assets/alpine/`） |
 | 内置浏览器 | `flutter_inappwebview` 6.1.5（**已 vendor 打补丁**，见下） |
 | 数学公式 | `flutter_math_fork`（纯 Dart，自带 KaTeX 字体） |
 | 本地 OCR | Google ML Kit 文字识别 |
@@ -592,7 +576,7 @@ Inter 里有字形，直接命中；汉字在它里面没有字形，于是落�
 ## 工程结构
 
 ```
-Tinkung/（包名 dsh_agent）
+Tinkung/（Android applicationId `com.agt.tk.hwl`，Dart package `dsh_agent`）
 ├── lib/
 │   ├── main.dart                  入口：建 store、边到边、主题
 │   ├── core/
@@ -607,27 +591,35 @@ Tinkung/（包名 dsh_agent）
 │   │   ├── selfhosted_search.dart 自建搜索服务客户端
 │   │   ├── web_fetch.dart         抓取（HTTP 优先，WebView 兜底）
 │   │   ├── storage.dart           文件清点与清理
-│   │   └── overlay.dart           悬浮窗通道
+│   │   ├── overlay.dart           悬浮窗通道
+│   │   ├── linux.dart             Alpine 安装 / 执行（MethodChannel dsh/linux）
+│   │   ├── python.dart            PythonService（走 Alpine python3）
+│   │   └── terminal_session.dart  终端流水（模型和用户共用）
 │   ├── ai/
 │   │   ├── deepseek.dart          API 客户端（SSE 流式 + tool_calls 分片拼接）
 │   │   └── agent.dart             主循环 + 系统提示词 + 消息构建
 │   ├── tools/
 │   │   ├── tool.dart              工具抽象 + 注册表 + 工具上下文
 │   │   ├── risk.dart              风险分级器
-│   │   ├── android_tools.dart     5 类系统工具
+│   │   ├── android_tools.dart     file_op（dart:io）
+│   │   ├── linux_tool.dart        linux（Alpine shell）
+│   │   ├── python_tool.dart       python（Alpine 里的 python3）
+│   │   ├── obj_tools.dart         filesearch / reader / writer / sheller / geter
 │   │   ├── extra_tools.dart       web / read_image
 │   │   ├── browser_tool.dart      内置浏览器抓取
 │   │   ├── webview_loader.dart    无头 WebView 加载器
 │   │   └── productivity_tools.dart notes / tasks
 │   ├── plugins/plugin.dart        自定义插件
-│   ├── shizuku/shizuku_service.dart
 │   ├── theme/                     app_theme.dart（字体/取色/系统栏）、glass.dart
 │   └── ui/
-│       ├── home_shell.dart        底部导航外壳 + 共用头部
+│       ├── home_shell.dart        首页外壳 + 共用头部
 │       ├── chat_page.dart         对话
+│       ├── terminal_page.dart     终端（Alpine）
+│       ├── python_console_page.dart Python 控制台
 │       ├── productivity_pages.dart 笔记页 + 任务页
 │       ├── performance_sheet.dart 性能面板
 │       ├── settings_sheet.dart    设置
+│       ├── font_settings_page.dart 字体（英文 / 中文 / 代码 + 导入字体）
 │       ├── plugins_sheet.dart     插件管理
 │       ├── storage_sheet.dart     存储清理
 │       ├── history_sheet.dart     历史记录
@@ -635,12 +627,12 @@ Tinkung/（包名 dsh_agent）
 │       ├── browser_page.dart      应用内浏览器
 │       ├── markdown.dart          Markdown 渲染器
 │       └── widgets.dart           消息 / 工具卡片 / 确认弹窗
-├── android/app/src/main/kotlin/com/dsh/dsh_agent/
+├── android/app/src/main/kotlin/com/agt/tk/hwl/
 │   ├── MainActivity.kt            通道注册
-│   ├── ShizukuBridge.kt           命令执行桥
+│   ├── LinuxRuntime.kt            proot + Alpine 执行
 │   └── OverlayConfirm.kt          系统悬浮窗
 ├── test/goldens/                  预览用的界面图（由测试渲染生成，39 张）
-├── test/                          81 个测试文件
+├── test/                          77 个测试文件
 ├── tools/                         构建期脚本（不进 APK）
 │   ├── build_icon.py              生成启动图标（改色/改形状只改它）
 │   ├── icon_preview.py            按启动器遮罩裁一遍，确认没被切边
@@ -650,7 +642,7 @@ Tinkung/（包名 dsh_agent）
 └── third_party/                   vendored 插件（见「踩过的坑」）
 ```
 
-`lib/` 下 **164 个 Dart 文件**，原生侧 **17 个 Kotlin 文件**。
+`lib/` 下 **163 个 Dart 文件**，原生侧 **16 个 Kotlin 文件**。
 模块职责与改造指南见 **[工程手册](docs/README.md)**。
 
 ---
@@ -672,9 +664,9 @@ $env:Path = "D:\flutter\flutter_windows_3.47.4-stable\flutter\bin;D:\pj2\.toolch
 $env:JAVA_HOME = "D:\pj2\.toolchain\jdk-21.0.2"
 $env:ANDROID_HOME = "D:\pj2\.toolchain\android-sdk"
 
-cd D:\pj3\PrivTasker
+cd D:\Tinkung
 flutter analyze lib             # 静态分析
-flutter test                    # 717 项测试
+flutter test                    # 705 项测试
 flutter build apk --release     # 通用包
 flutter build apk --release --split-per-abi   # 按架构拆分
 ```
@@ -706,14 +698,18 @@ flutter test test/markdown_preview_test.dart --update-goldens  # Markdown + 公�
 
 留档，免得重踩。
 
-### Shizuku
+### proot / Alpine
 
-- **`Shizuku.newProcess` 在 13.1.5 里是 `private`**，编译不过。
-  公开入口在 AIDL 层：`IShizukuService.newProcess(...)`，服务对象由 `Shizuku.getBinder()` 取到。
-- **binder 调用不能在主线程**，一律丢到线程池。
-- 读 stdout / stderr **必须各用一条线程** —— 只读一个的话，另一个管道写满后子进程会阻塞，
+- **proot 的 `--kill-on-exit` 会把命令自己起的后台进程一起收走**。
+  所以带 `nohup` / `setsid` / 结尾 `&` 的命令要走 `keepAlive` 那条分支，不加这个参数。
+- **rootfs 必须解到应用私有目录**（`filesDir/linux/rootfs`），
+  放 `getExternalFilesDir` 会被某些 ROM 的 FUSE 挂载搞得 `chmod` 失败。
+- **`/shared` 是唯一和手机交换文件的地方**（映射到 `filesDir/shared`）。
+  写在 `/root`、`/tmp` 里的文件用户找不到 —— 提示词里反复强调这一点。
+- **静态 `apk` 必须用 `apk.static`**：Alpine rootfs 里没有 glibc 兼容层，
+  动态链接的 `apk` 在 proot 下起不来。
+- 读 stdout / stderr **必须各自读完** —— 只读一个的话，另一个管道写满后子进程会阻塞，
   表现为「命令卡住不返回」。
-- 截图走 `binary=true` 回传 `ByteArray`，**不能经 String 中转**（会破坏非 UTF-8 字节）。
 
 ### DeepSeek API
 
@@ -790,13 +786,12 @@ flutter test test/markdown_preview_test.dart --update-goldens  # Markdown + 公�
 | 风险分级器 | ✅ 有单测 |
 | **记忆功能（增删改查、上限、去重、注入开关、落盘往返）** | ✅ 有单测（11 个） |
 | **Tavily 通道** | ✅ **真机验证：走免费通道或自带 key 都能用** |
-| **Shizuku 实际执行链路** | ✅ **真机验证：正常** |
+| **Alpine 安装与执行（proot）** | ✅ **真机验证：正常** |
 | **悬浮窗权限流程** | ✅ **真机验证：正常** |
-| **内置浏览器抓取** | ⚠️ **真机验证：能用**，但复杂内容抓取效果差 —— 可以配合内嵌 Python 处理 |
+| **内置浏览器抓取** | ⚠️ **真机验证：能用**，但复杂内容抓取效果差 —— 可以配合内置 Python 处理 |
 | **自建搜索服务** | ❌ 没测过（需要部署） |
 | **玻璃控件的真机观感（shader 路径）** | ⚠️ 真机上深色会发白（本轮已改，待确认）—— 见下 |
-| **内嵌 Python（Chaquopy）运行时** | ❌ **没有真机验证过**（只验了编译和打包） |
-| **Termux 联动** | ❌ **没有真机验证过**（且需要用户自己装 Termux） |
+| **Python（Alpine `python3`）** | ⚠️ 首次自动 `apk add` 需要联网；装完可直接用 |
 | **后台保活 / 前台服务** | ❌ **没有真机验证过** |
 | **后台 agent 的底部悬浮条** | ❌ **没有真机验证过** |
 | **任务到点自动执行** | ❌ **没有实现**（见「已知限制」） |
@@ -806,7 +801,7 @@ flutter test test/markdown_preview_test.dart --update-goldens  # Markdown + 公�
 > 这一点让我连着调错三轮（见「深色下发白：改了三次才搞对」）。
 > **渲染图能证明布局和颜色，不能证明玻璃的观感。**
 
-**头部三项（Shizuku / 悬浮窗 / 内置浏览器）已经在真机上跑通了**，
+**已真机跑通的三项（Alpine 执行 / 悬浮窗 / 内置浏览器）是"纸面正确"到"确实能用"的关键一步**，
 这是从"纸面正确"到"确实能用"的关键一步。剩下未验证的部分仍是不确定性最大的地方：
 代码能编译、能通过分析、界面能渲染，但 **Android 运行时行为因设备而异**。
 ---
@@ -817,9 +812,8 @@ flutter test test/markdown_preview_test.dart --update-goldens  # Markdown + 公�
   真正的后台定时执行需要 `AlarmManager` + 前台服务，是另一块工作。
 - **导出不含 API Key（默认）。** 换设备要手动填一次。
 - **Release 用 debug 签名**，无法上架、无法覆盖安装签名不同的版本。
-- **APK 较大（约 102 MB）**：内嵌的 CPython 3.13 + 科学计算/文档类 wheel 占了大头
-  （约 53 MB），其余是 Flutter 引擎、ML Kit 模型、以及衬线字体。
-  Chaquopy 在**构建期**就把包固化进去了，运行期没有 pip，所以包一多体积就下不来。
+- **APK 约 70 MB**：Flutter 引擎、ML Kit 模型、Alpine rootfs 与 proot 原生库占了大头。
+  不再内嵌 CPython（Python 走 Alpine），所以体积比早先的版本小很多。
 - **`deepseek-v4-pro` 不支持图像输入**，选它时识图会降级为本地 OCR。
 - **搜索通道收窄了。** DeepSeek 官方的服务端 `web_search` 已被厂商关闭；
   自建搜索服务因为没人部署、等于死代码，已从链路里移除。
@@ -830,7 +824,8 @@ flutter test test/markdown_preview_test.dart --update-goldens  # Markdown + 公�
 
 ## 致谢
 
-- [Shizuku](https://github.com/RikkaApps/Shizuku) —— 免 root 拿到 shell 权限
+- [proot](https://proot-me.github.io/) —— 免 root 的 Linux 用户态环境
+- [Alpine Linux](https://alpinelinux.org/) —— 内置的 rootfs
 - [agent-web-search](https://github.com/blueewhitee/agent-web-search) ——
   自建搜索服务的接口参考；本项目的**提示注入清洗**思路来自它的 Stage 3.5
 - [flutter_math_fork](https://pub.dev/packages/flutter_math_fork) —— LaTeX 渲染
@@ -851,8 +846,10 @@ flutter test test/markdown_preview_test.dart --update-goldens  # Markdown + 公�
 - `assets/fonts/*.ttf` / `*.otf` / `*.ttc` 已被 `.gitignore` 排除，
   仓库里只有获取说明
 - 自己构建需要先准备字体，见 [`assets/fonts/README.md`](assets/fonts/README.md)
-- 想换字体只涉及两处：`pubspec.yaml` 的 `fonts:` 段和 `AppFonts.uiFamily`；
-  **记得保留 `bodyFallback` 里的 `sans-serif`**，否则中文全是空心方块
+- 想换默认字体有三条路：设置里选（英文 / 中文 / 代码三套）、导入 `.ttf`
+  （运行时加载，见 `core/custom_font.dart`）、或者改 `pubspec.yaml` 的
+  `fonts:` 段与 `AppFonts` 的默认值；
+  **任何时候都要保留 `bodyFallback` 里的 `sans-serif`**，否则中文全是空心方块
 
 完整说明见 [THIRD-PARTY.md](THIRD-PARTY.md)，其中包括依赖项许可、
 以及 vendored 补丁的合规性说明。

@@ -20,7 +20,7 @@ class PlatformFiles {
 
   /// 把界面里显示的路径解析成设备上真实存在的路径。
   ///
-  /// Termux/Linux 里写 `/shared/a.pdf` 时，真实文件在
+  /// Alpine 里写 `/shared/a.pdf` 时，真实文件在
   /// `filesDir/shared/a.pdf`；`/sdcard` 也可能和真实主存储路径不完全一样。
   /// 不解析就会“卡片上有文件、点开说找不到”。
   ///
@@ -59,7 +59,7 @@ class PlatformFiles {
     }
   }
 
-  /// 把文件**存进用户能找到的地方**（图片进「图片/Zeus」，其它进「下载」）。
+  /// 把文件**存进用户能找到的地方**（图片进「图片/einkung」，其它进「下载」）。
   ///
   /// 返回 `null` = 成功，否则是给用户看的错误说明。
   /// 私有目录 → 公共目录在 Android 11+ 写不进去，必须由原生走 MediaStore，

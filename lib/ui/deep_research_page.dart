@@ -10,7 +10,6 @@ import '../core/overlay.dart';
 import '../core/productivity.dart';
 import '../core/store.dart';
 import '../plugins/plugin.dart';
-import '../shizuku/shizuku_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/glass.dart';
 import '../tools/android_tools.dart';
@@ -19,6 +18,7 @@ import '../tools/extra_tools.dart';
 import '../mcp/mcp_store.dart';
 import '../tools/knowledge_tool.dart';
 import '../tools/learning_tool.dart';
+import '../tools/linux_tool.dart';
 import '../tools/mcp_tool.dart';
 import '../tools/memory_tool.dart';
 import '../tools/model_tool.dart';
@@ -46,7 +46,6 @@ class DeepResearchPage extends StatefulWidget {
   const DeepResearchPage({
     super.key,
     required this.settings,
-    required this.shizuku,
     required this.workDir,
     required this.notes,
     required this.tasks,
@@ -54,7 +53,6 @@ class DeepResearchPage extends StatefulWidget {
   });
 
   final Settings settings;
-  final ShizukuService shizuku;
   final String workDir;
   final NoteStore notes;
   final TaskStore tasks;
@@ -181,14 +179,15 @@ class _DeepResearchPageState extends State<DeepResearchPage> {
     final ToolRegistry r = ToolRegistry();
 
     // 探究的**核心能力是联网**，所以联网工具无条件注册；
-    // shell 类工具只在 Shizuku 就绪时给，否则模型会反复调用然后拿到
-    // 一堆"无法执行"，白白烧掉轮次。
+    // 文件与 Linux 工具也始终可用。
     r.registerAll(<AgentTool>[
       const WebTool(),
       const BrowserTool(),
       const NotesTool(),
       const TasksTool(),
       const PythonTool(),
+      const FileTool(),
+      const LinuxTool(),
       const MemoryTool(),
       const RuleTool(),
       const LearnTool(),
@@ -205,13 +204,10 @@ class _DeepResearchPageState extends State<DeepResearchPage> {
       }
     }
 
-    if (widget.shizuku.ready) {
-      r.registerAll(<AgentTool>[const ShellTool(), const FileTool()]);
-    }
+    if (r.byName('file_op') == null) r.register(const FileTool());
 
     for (final PluginTool t in widget.plugins.enabledTools()) {
       if (r.byName(t.name) != null) continue;
-      if (!widget.shizuku.ready && t.plugin.kind == PluginKind.shell) continue;
       r.register(t);
     }
 
@@ -252,7 +248,6 @@ class _DeepResearchPageState extends State<DeepResearchPage> {
 
     final AgentRunner runner = AgentRunner(
       settings: widget.settings,
-      shizuku: widget.shizuku,
       registry: _buildRegistry(),
       workDir: widget.workDir,
       notes: widget.notes,

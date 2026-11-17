@@ -33,7 +33,7 @@ class BgStatus {
 ///
 /// 这是必须说清的边界：国产 ROM 有自己的省电策略（自启动管理、
 /// 后台冻结），可能比 Android 原生更激进。做了这两件事**显著提高**
-/// 存活率，但不保证。所以 `termux` 工具那边的建议仍然是
+/// 存活率，但不保证。所以 `linux` 工具那边的建议仍然是
 /// "长任务写日志文件，之后回来读"，而不是"挂着等它跑完"。
 class BackgroundService extends ChangeNotifier {
   BackgroundService._();

@@ -10,10 +10,10 @@ import '../core/notify_hub.dart';
 import '../core/productivity.dart';
 import '../core/store.dart';
 import '../plugins/plugin.dart';
-import '../shizuku/shizuku_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/glass.dart';
 import 'browser_page.dart';
+import 'garmin_devices_page.dart';
 import 'greeting.dart';
 import 'productivity_pages.dart';
 import 'settings_sheet.dart';
@@ -44,7 +44,6 @@ class AppDrawer extends StatefulWidget {
     required this.settings,
     required this.conversations,
     required this.plugins,
-    required this.shizuku,
     required this.workDir,
     required this.notes,
     required this.tasks,
@@ -53,7 +52,6 @@ class AppDrawer extends StatefulWidget {
   final Settings settings;
   final ConversationStore conversations;
   final PluginStore plugins;
-  final ShizukuService shizuku;
   final String workDir;
   final NoteStore notes;
   final TaskStore tasks;
@@ -151,6 +149,22 @@ class _AppDrawerState extends State<AppDrawer> {
     );
   }
 
+  void _openDevices() {
+    _close();
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (BuildContext _) => GarminDevicesPage(
+          settings: widget.settings,
+          conversations: widget.conversations,
+          plugins: widget.plugins,
+          workDir: widget.workDir,
+          notes: widget.notes,
+          tasks: widget.tasks,
+        ),
+      ),
+    );
+  }
+
   // ------------------------------------------------------------------ 视图
 
   @override
@@ -199,6 +213,7 @@ class _AppDrawerState extends State<AppDrawer> {
                     _openNotesAndTasks,
                   ),
                   _entryRow(s, Icons.public_rounded, '浏览器', _openBrowser),
+                  _entryRow(s, Icons.watch_outlined, '绑定第三方设备', _openDevices),
                   if (_searching) _searchBox(s),
                   const SizedBox(height: 6),
                   // ---- 历史区：**不铺底色，只压一条分隔线** ----

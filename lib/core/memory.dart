@@ -47,7 +47,7 @@ class MemoryItem {
 ///
 /// 做成单例的理由和 `RuleStore` 完全一样：记忆要在**系统提示词构建时**读到，
 /// 而那条路径在 `AgentRunner` 深处，从 main 一路透传下来要改十几个文件。
-/// 同项目的 `PythonService` / `TermuxService` / `RuleStore` 都是这个模式。
+/// 同项目的 `PythonService` / `LinuxService` / `RuleStore` 都是这个模式。
 class MemoryStore extends ChangeNotifier {
   MemoryStore._(this._file);
 

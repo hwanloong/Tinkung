@@ -134,10 +134,13 @@ class _McpPageState extends State<McpPage> {
   Widget _tile(AppSurface s, McpServer server) {
     final bool busy = _busy.contains(server.id);
     final bool failed = server.lastError.isNotEmpty;
-    final int n = server.tools.length;
-    final String meta = failed
+    final bool blocked = server.isBlocked;
+    final int n = server.enabledTools.length;
+    final String meta = blocked
+        ? '已熔断（连续失败，60 秒后恢复）'
+        : failed
         ? '连接失败：${server.lastError}'
-        : '${n == 0 ? '还没有发现工具' : '$n 个工具'} · ${server.url}';
+        : '${n == 0 ? '还没有发现技能' : '$n 个技能'} · ${server.url}';
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 9),
@@ -376,7 +379,7 @@ class _McpServerPageState extends State<McpServerPage> {
                 _statusCard(s, server),
                 const SizedBox(height: 14),
                 Text(
-                  '工具 ${server.tools.length}',
+                  '技能 ${server.tools.length}',
                   style: AppFonts.body(
                     size: 11.5,
                     weight: FontWeight.w600,
@@ -389,7 +392,7 @@ class _McpServerPageState extends State<McpServerPage> {
                     radius: AppRadius.card,
                     padding: const EdgeInsets.all(14),
                     child: Text(
-                      '还没有发现工具。点右上角的刷新按钮连接一次；'
+                      '还没有发现技能。点右上角的刷新按钮连接一次；'
                       '失败原因会显示在上面。',
                       style: AppFonts.body(
                         size: 12.5,
@@ -399,7 +402,7 @@ class _McpServerPageState extends State<McpServerPage> {
                     ),
                   )
                 else
-                  ...server.tools.map((McpToolInfo t) => _toolCard(s, t)),
+                  ...server.tools.map((McpToolInfo t) => _toolCard(s, t, server)),
               ],
             ),
           ),
@@ -498,7 +501,8 @@ class _McpServerPageState extends State<McpServerPage> {
     );
   }
 
-  Widget _toolCard(AppSurface s, McpToolInfo t) {
+  Widget _toolCard(AppSurface s, McpToolInfo t, McpServer server) {
+    final bool enabled = !server.disabledTools.contains(t.name);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: SurfaceCard(
@@ -527,7 +531,7 @@ class _McpServerPageState extends State<McpServerPage> {
                     style: AppFonts.body(
                       size: 14.5,
                       weight: FontWeight.w600,
-                      color: s.text,
+                      color: enabled ? s.text : s.muted,
                     ),
                   ),
                 ),
@@ -538,6 +542,18 @@ class _McpServerPageState extends State<McpServerPage> {
                   _chip(s, '可能破坏数据', danger: true)
                 else
                   _chip(s, '需确认'),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () {
+                    McpStore.instance.setToolEnabled(server, t.name, !enabled);
+                    setState(() {});
+                  },
+                  child: Icon(
+                    enabled ? Icons.toggle_on_rounded : Icons.toggle_off_rounded,
+                    size: 26,
+                    color: enabled ? AppColors.accent : s.muted,
+                  ),
+                ),
               ],
             ),
             if (t.description.trim().isNotEmpty) ...<Widget>[

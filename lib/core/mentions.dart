@@ -1,5 +1,5 @@
 import '../plugins/plugin.dart';
-import 'folder_tool.dart';
+import 'skill.dart';
 
 /// 一条 `@` 引用指向的东西。
 enum MentionKind {
@@ -75,7 +75,7 @@ class MentionParser {
   /// 返回空串表示没有可注入的东西（引用的东西被删了/停用了）。
   static String buildContext(
     String text, {
-    required FolderToolStore tools,
+    required SkillStore tools,
     required PluginStore plugins,
   }) {
     final List<Mention> mentions = parse(text);
@@ -85,7 +85,7 @@ class MentionParser {
 
     for (final Mention m in mentions) {
       if (m.kind == MentionKind.tool) {
-        final FolderTool? t = tools.byId(m.id);
+        final Skill? t = tools.byId(m.id);
         if (t == null || !t.enabled) continue;
         sb.writeln('===== 用户引用的工具：${t.id} =====');
         sb.writeln(tools.readForModel(t));
@@ -111,7 +111,7 @@ class MentionParser {
   /// 引用在界面上显示的名字（工具用标题，插件用标题，找不到就退回 id）。
   static String label(
     Mention m, {
-    required FolderToolStore tools,
+    required SkillStore tools,
     required PluginStore plugins,
   }) {
     if (m.kind == MentionKind.tool) {
